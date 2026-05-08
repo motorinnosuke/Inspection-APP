@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="現場検査">
+<meta name="theme-color" content="#1a1a2e">
+<title>現場検査アプリ v2</title>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --surface: #1a1a2e;
+    --surface2: #16213e;
+    --accent: #e94560;
+    --accent2: #0f3460;
+    --text: #eaeaea;
+    --text2: #8892a4;
+    --ok: #2ecc71;
+    --ng: #e74c3c;
+    --check: #f39c12;
+    --pin-size: 32px;
+    --radius: 12px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif; }
+
+  #app { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-top); }
+
+  /* HEADER */
+  header {
+    background: var(--surface);
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid rgba(233,69,96,0.3);
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: 0.05em; flex: 1; }
+  .header-btn {
+    background: var(--accent2); border: 1px solid var(--accent); color: var(--text);
+    border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  /* FLOOR TABS */
+  #floor-tabs {
+    display: flex; overflow-x: auto; gap: 8px; padding: 10px 16px;
+    background: var(--surface2); flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    scrollbar-width: none;
+  }
+  #floor-tabs::-webkit-scrollbar { display: none; }
+  .floor-tab {
+    flex-shrink: 0; padding: 6px 14px; border-radius: 20px;
+    background: var(--surface); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text2); font-size: 13px; cursor: pointer; white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .floor-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .floor-tab.add-btn { border-style: dashed; color: var(--accent); }
+
+  /* MAIN CONTENT */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* PLAN VIEW */
+  #plan-view { flex: 1; position: relative; overflow: hidden; touch-action: none; background: #111; }
+  #plan-canvas-wrap {
+    position: absolute; transform-origin: 0 0;
+    cursor: crosshair;
+  }
+  #plan-canvas-wrap img {
+    display: block; max-width: none; pointer-events: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  .no-plan {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; color: var(--text2);
+  }
+  .no-plan-icon { font-size: 64px; opacity: 0.3; }
+  .no-plan p { font-size: 15px; }
+  .upload-plan-btn {
+    background: var(--accent); color: #fff; border: none;
+    padding: 12px 24px; border-radius: var(--radius); font-size: 15px; cursor: pointer;
+  }
+
+  /* PINS */
+  .pin {
+    position: absolute; transform: translate(-50%, -100%);
+    width: var(--pin-size); cursor: pointer;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+    z-index: 10; transition: transform 0.15s;
+    touch-action: none;
+  }
+  .pin:active { transform: translate(-50%, -100%) scale(1.2); }
+  .pin svg { width: 100%; height: auto; }
+  .pin.status-ok svg .pin-fill { fill: var(--ok); }
+  .pin.status-ng svg .pin-fill { fill: var(--ng); }
+  .pin.status-check svg .pin-fill { fill: var(--check); }
+  .pin.status-none svg .pin-fill { fill: var(--accent); }
+  .pin-num {
+    position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; font-weight: 700; color: #fff; pointer-events: none;
+  }
+
+  /* TOOLBAR */
+  #toolbar {
+    background: var(--surface); border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 10px 16px; padding-bottom: calc(10px + var(--safe-bottom));
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  .tool-btn {
+    flex: 1; padding: 10px 4px; border-radius: 10px;
+    background: var(--surface2); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text2); font-size: 11px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    transition: all 0.15s;
+  }
+  .tool-btn .icon { font-size: 20px; }
+  .tool-btn.active, .tool-btn:active { background: var(--accent2); border-color: var(--accent); color: var(--accent); }
+
+  /* MODALS */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+    display: flex; align-items: flex-end; z-index: 100;
+    opacity: 0; pointer-events: none; transition: opacity 0.25s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface); width: 100%; border-radius: 20px 20px 0 0;
+    padding: 20px 20px calc(20px + var(--safe-bottom));
+    transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.32,0.72,0,1);
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-handle { width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin: 0 auto 16px; }
+  .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+
+  /* PIN DETAIL */
+  .pin-photos { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .photo-thumb {
+    border-radius: 8px; overflow: hidden; background: var(--surface2);
+    position: relative; cursor: pointer;
+  }
+  .photo-thumb img { width: 100%; height: auto; display: block; max-height: 400px; object-fit: contain; background: #000; }
+  .photo-thumb .del-photo {
+    position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.6);
+    border: none; color: #fff; border-radius: 50%; width: 22px; height: 22px;
+    font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .add-photo-btn {
+    width: 100%; padding: 14px; border-radius: 8px; background: var(--surface2);
+    border: 1px dashed rgba(255,255,255,0.2);
+    display: flex; flex-direction: row; align-items: center; justify-content: center;
+    gap: 8px; color: var(--text2); font-size: 14px; cursor: pointer;
+  }
+  .add-photo-btn span { font-size: 22px; }
+
+  textarea.memo {
+    width: 100%; background: var(--surface2); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text); border-radius: var(--radius); padding: 10px; font-size: 14px;
+    min-height: 80px; resize: none; font-family: inherit;
+    outline: none;
+  }
+  textarea.memo:focus { border-color: var(--accent); }
+
+  .status-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .status-chip {
+    flex: 1; padding: 8px 4px; border-radius: 8px; text-align: center;
+    font-size: 13px; font-weight: 600; cursor: pointer; border: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .status-chip.ok { background: rgba(46,204,113,0.15); color: var(--ok); }
+  .status-chip.ng { background: rgba(231,76,60,0.15); color: var(--ng); }
+  .status-chip.check { background: rgba(243,156,18,0.15); color: var(--check); }
+  .status-chip.selected-ok { border-color: var(--ok); background: rgba(46,204,113,0.3); }
+  .status-chip.selected-ng { border-color: var(--ng); background: rgba(231,76,60,0.3); }
+  .status-chip.selected-check { border-color: var(--check); background: rgba(243,156,18,0.3); }
+
+  .btn-primary {
+    width: 100%; padding: 14px; background: var(--accent); color: #fff;
+    border: none; border-radius: var(--radius); font-size: 15px; font-weight: 700;
+    cursor: pointer; margin-top: 12px;
+  }
+  .btn_zip {
+    width: 100%; padding: 12px; background: var(--surface2); color: var(--text);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: var(--radius); font-size: 14px;
+    cursor: pointer; margin-top: 8px;
+  }
+  .btn-zip {
+    width: 100%; padding: 12px; background: var(--surface2); color: var(--text);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: var(--radius); font-size: 14px;
+    cursor: pointer; margin-top: 8px;
+  }
+  .btn-zip:active { border-color: var(--accent); color: var(--accent); }
+    width: 100%; padding: 12px; background: transparent; color: var(--ng);
+    border: 1px solid var(--ng); border-radius: var(--radius); font-size: 14px;
+    cursor: pointer; margin-top: 8px;
+  }
+
+  /* LIST VIEW */
+  #list-view { flex: 1; overflow-y: auto; padding: 12px 16px; display: none; }
+  .list-item {
+    background: var(--surface); border-radius: var(--radius); padding: 12px;
+    margin-bottom: 10px; display: flex; align-items: center; gap: 12px;
+    cursor: pointer; border: 1px solid rgba(255,255,255,0.06);
+  }
+  .list-pin-badge {
+    width: 36px; height: 36px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .badge-ok { background: rgba(46,204,113,0.2); color: var(--ok); }
+  .badge-ng { background: rgba(231,76,60,0.2); color: var(--ng); }
+  .badge-check { background: rgba(243,156,18,0.2); color: var(--check); }
+  .badge-none { background: rgba(233,69,96,0.2); color: var(--accent); }
+  .list-item-info { flex: 1; min-width: 0; }
+  .list-item-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .list-item-sub { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list-photo-count { font-size: 12px; color: var(--text2); flex-shrink: 0; }
+
+  /* FLOOR MODAL */
+  .input-field {
+    width: 100%; background: var(--surface2); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text); border-radius: var(--radius); padding: 12px; font-size: 15px;
+    outline: none; font-family: inherit; margin-bottom: 12px;
+  }
+  .input-field:focus { border-color: var(--accent); }
+
+  /* PHOTO VIEWER */
+  #photo-viewer {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.95);
+    z-index: 200; display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  #photo-viewer.open { display: flex; }
+  #photo-viewer img { max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain; }
+  #photo-viewer .close-viewer {
+    position: absolute; top: calc(16px + var(--safe-top)); right: 16px;
+    background: rgba(255,255,255,0.1); border: none; color: #fff;
+    width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer;
+  }
+
+  /* EXPORT MENU */
+  .export-menu-btn {
+    width: 100%; background: var(--surface2); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius); padding: 14px; cursor: pointer;
+    display: flex; align-items: center; gap: 14px; color: var(--text);
+    margin-bottom: 10px; text-align: left; transition: border-color 0.15s;
+  }
+  .export-menu-btn:active { border-color: var(--accent); background: var(--accent2); }
+  .export-icon { font-size: 28px; flex-shrink: 0; }
+  .export-btn-title { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .export-btn-sub { font-size: 12px; color: var(--text2); }
+
+  /* ASPECT RATIO BUTTONS */
+  .aspect-btn {
+    background: var(--surface2); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius); padding: 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 14px; color: var(--text);
+    transition: border-color 0.15s;
+  }
+  .aspect-btn:active { border-color: var(--accent); background: var(--accent2); }
+  .aspect-preview {
+    width: 80px; background: var(--surface); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .aspect-preview span { font-size: 12px; font-weight: 700; color: var(--accent); }
+  .aspect-label { font-size: 15px; font-weight: 500; }
+  .zoom-hint {
+    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); color: rgba(255,255,255,0.6);
+    font-size: 11px; padding: 4px 10px; border-radius: 20px; pointer-events: none;
+    transition: opacity 0.5s; white-space: nowrap;
+  }
+
+  /* Summary bar */
+  #summary-bar {
+    background: var(--surface2); padding: 8px 16px;
+    display: flex; gap: 12px; flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .summary-item { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+  .summary-dot { width: 8px; height: 8px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>📐 現場検査</h1>
+    <button class="header-btn" onclick="showFloorModal()">＋ 図面追加</button>
+  </header>
+
+  <div id="floor-tabs"></div>
+
+  <div id="summary-bar">
+    <div class="summary-item"><div class="summary-dot" style="background:var(--accent)"></div><span id="sum-total">0件</span></div>
+    <div class="summary-item"><div class="summary-dot" style="background:var(--ok)"></div><span id="sum-ok">OK: 0</span></div>
+    <div class="summary-item"><div class="summary-dot" style="background:var(--ng)"></div><span id="sum-ng">NG: 0</span></div>
+    <div class="summary-item"><div class="summary-dot" style="background:var(--check)"></div><span id="sum-check">確認: 0</span></div>
+  </div>
+
+  <div id="main">
+    <div id="plan-view">
+      <div id="plan-canvas-wrap">
+        <img id="plan-img" src="" alt="図面">
+        <div id="pins-layer"></div>
+      </div>
+      <div class="no-plan" id="no-plan-msg">
+        <div class="no-plan-icon">📋</div>
+        <p>図面がありません</p>
+        <button class="upload-plan-btn" onclick="showFloorModal()">図面を追加する</button>
+      </div>
+      <div class="zoom-hint" id="zoom-hint">1本指でピン追加 / 2本指で移動・拡大</div>
+    </div>
+    <div id="list-view"></div>
+  </div>
+
+  <div id="toolbar">
+    <button class="tool-btn active" id="btn-pin-mode" onclick="setMode('pin')">
+      <span class="icon">📍</span><span>ピン追加</span>
+    </button>
+    <button class="tool-btn" id="btn-move-mode" onclick="setMode('move')">
+      <span class="icon">✋</span><span>移動</span>
+    </button>
+    <button class="tool-btn" id="btn-list-mode" onclick="setMode('list')">
+      <span class="icon">📋</span><span>一覧</span>
+    </button>
+    <button class="tool-btn" id="btn-export" onclick="openModal('export-modal')">
+      <span class="icon">📤</span><span>エクスポート</span>
+    </button>
+  </div>
+</div>
+
+<!-- Floor Modal -->
+<div class="modal-overlay" id="floor-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">図面を追加</div>
+    <input class="input-field" type="text" id="floor-name-input" placeholder="図面名（例：1F 平面図）">
+    <div style="margin-bottom:12px">
+      <input type="file" id="floor-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleFloorFile(this)">
+      <button class="btn-primary" style="margin-top:0" onclick="document.getElementById('floor-file-input').click()">
+        📁 画像/PDFを選択
+      </button>
+    </div>
+    <div id="floor-preview-wrap" style="display:none; margin-bottom:12px">
+      <img id="floor-preview" style="width:100%; border-radius:8px; max-height:200px; object-fit:contain; background:#111">
+    </div>
+    <button class="btn-primary" onclick="saveFloor()">追加する</button>
+    <button class="btn-danger" onclick="closeModal('floor-modal')">キャンセル</button>
+  </div>
+</div>
+
+<!-- Pin Detail Modal -->
+<div class="modal-overlay" id="pin-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="pin-modal-title">📍 ピン #1</div>
+    <div class="status-row">
+      <div class="status-chip ok" id="chip-ok" onclick="setPinStatus('ok')">✅ OK</div>
+      <div class="status-chip ng" id="chip-ng" onclick="setPinStatus('ng')">❌ NG</div>
+      <div class="status-chip check" id="chip-check" onclick="setPinStatus('check')">⚠️ 確認</div>
+    </div>
+    <div id="pin-photos" class="pin-photos"></div>
+    <textarea class="memo" id="pin-memo" placeholder="メモを入力..." rows="3"></textarea>
+    <div style="font-size:12px; color:var(--text2); margin-top:6px" id="pin-date"></div>
+    <button class="btn-primary" onclick="savePinDetail()">保存</button>
+    <button class="btn-zip" id="btn-pin-zip" onclick="exportPinZip()">🗂️ この写真をZIPでダウンロード</button>
+    <div id="pin-zip-progress" style="display:none; margin-top:8px">
+      <div style="font-size:12px; color:var(--text2); margin-bottom:4px" id="pin-zip-text">作成中...</div>
+      <div style="height:4px; background:var(--surface2); border-radius:2px">
+        <div id="pin-zip-bar" style="height:100%; background:var(--accent); border-radius:2px; width:0%; transition:width 0.2s"></div>
+      </div>
+    </div>
+    <button class="btn-danger" onclick="deletePin()">このピンを削除</button>
+  </div>
+</div>
+
+<!-- Photo Viewer -->
+<div id="photo-viewer">
+  <button class="close-viewer" onclick="closePhotoViewer()">✕</button>
+  <img id="viewer-img" src="" alt="">
+</div>
+
+<!-- Export Modal -->
+<div class="modal-overlay" id="export-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📤 エクスポート</div>
+    <button class="export-menu-btn" onclick="exportReport()">
+      <span class="export-icon">📄</span>
+      <div>
+        <div class="export-btn-title">テキストレポート</div>
+        <div class="export-btn-sub">検査結果をテキストファイルで出力</div>
+      </div>
+    </button>
+    <button class="export-menu-btn" onclick="exportZip()">
+      <span class="export-icon">🗂️</span>
+      <div>
+        <div class="export-btn-title">写真をZIPでダウンロード</div>
+        <div class="export-btn-sub">ピンごとのフォルダにまとめて出力</div>
+      </div>
+    </button>
+    <button class="export-menu-btn" onclick="exportZipAll()">
+      <span class="export-icon">📦</span>
+      <div>
+        <div class="export-btn-title">全図面の写真をZIPでダウンロード</div>
+        <div class="export-btn-sub">すべての図面・ピンをまとめて出力</div>
+      </div>
+    </button>
+    <div id="export-progress" style="display:none; margin-top:12px">
+      <div style="font-size:13px; color:var(--text2); margin-bottom:6px" id="export-progress-text">ZIPを作成中...</div>
+      <div style="height:4px; background:var(--surface2); border-radius:2px">
+        <div id="export-progress-bar" style="height:100%; background:var(--accent); border-radius:2px; width:0%; transition:width 0.2s"></div>
+      </div>
+    </div>
+    <button class="btn-danger" onclick="closeModal('export-modal')">キャンセル</button>
+  </div>
+</div>
+
+<!-- Aspect Ratio Modal -->
+<div class="modal-overlay" id="aspect-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📐 撮影比率を選択</div>
+    <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:8px">
+      <button class="aspect-btn" onclick="startCapture('4:3')">
+        <div class="aspect-preview" style="aspect-ratio:4/3">
+          <span>4:3</span>
+        </div>
+        <div class="aspect-label">標準（4:3）</div>
+      </button>
+      <button class="aspect-btn" onclick="startCapture('16:9')">
+        <div class="aspect-preview" style="aspect-ratio:16/9">
+          <span>16:9</span>
+        </div>
+        <div class="aspect-label">ワイド（16:9）</div>
+      </button>
+      <button class="aspect-btn" onclick="startCapture('free')">
+        <div class="aspect-preview" style="aspect-ratio:3/2">
+          <span>FREE</span>
+        </div>
+        <div class="aspect-label">そのまま（トリミングなし）</div>
+      </button>
+    </div>
+    <button class="btn-danger" onclick="closeModal('aspect-modal')">キャンセル</button>
+  </div>
+</div>
+
+<!-- Hidden file input for camera -->
+<input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none" onchange="handleCameraCapture(this)">
+
+<script>
+// ========== STATE ==========
+let state = {
+  floors: [],
+  currentFloorId: null,
+  mode: 'pin', // pin | move | list
+  editingPinId: null,
+  pendingPhotoForPin: null,
+  pendingAspect: 'free',
+};
+
+let transform = { x: 0, y: 0, scale: 1 };
+let gesture = { fingers: 0, startDist: 0, startScale: 1, startX: 0, startY: 0, startTX: 0, startTY: 0, midX: 0, midY: 0, moved: false, startTime: 0 };
+
+const DB_KEY = 'inspection_app_v3';
+
+// ========== STORAGE ==========
+function save() {
+  try {
+    const data = JSON.stringify(state.floors);
+    localStorage.setItem(DB_KEY, data);
+  } catch(e) {
+    alert('保存に失敗しました（容量不足の可能性）');
+  }
+}
+
+function load() {
+  try {
+    const data = localStorage.getItem(DB_KEY);
+    if (data) state.floors = JSON.parse(data);
+  } catch(e) {}
+}
+
+// ========== INIT ==========
+function init() {
+  load();
+  renderFloorTabs();
+  if (state.floors.length > 0) {
+    selectFloor(state.floors[0].id);
+  } else {
+    showNoPlan();
+  }
+  setupGestures();
+  setTimeout(() => {
+    document.getElementById('zoom-hint').style.opacity = '0';
+  }, 3000);
+}
+
+// ========== FLOORS ==========
+function showFloorModal() {
+  document.getElementById('floor-name-input').value = '';
+  document.getElementById('floor-preview-wrap').style.display = 'none';
+  document.getElementById('floor-file-input').value = '';
+  window._pendingFloorDataUrl = null;
+  openModal('floor-modal');
+}
+
+function handleFloorFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  if (file.type === 'application/pdf') {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const pdfData = e.target.result;
+      renderPDFToImage(pdfData);
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      window._pendingFloorDataUrl = e.target.result;
+      document.getElementById('floor-preview').src = e.target.result;
+      document.getElementById('floor-preview-wrap').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+function renderPDFToImage(arrayBuffer) {
+  // Use PDF.js via CDN
+  if (typeof pdfjsLib === 'undefined') {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload = function() {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      doRenderPDF(arrayBuffer);
+    };
+    document.head.appendChild(script);
+  } else {
+    doRenderPDF(arrayBuffer);
+  }
+}
+
+async function doRenderPDF(arrayBuffer) {
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    window._pendingFloorDataUrl = dataUrl;
+    document.getElementById('floor-preview').src = dataUrl;
+    document.getElementById('floor-preview-wrap').style.display = 'block';
+  } catch(e) {
+    alert('PDFの読み込みに失敗しました。画像ファイル（JPG/PNG）をお試しください。');
+  }
+}
+
+function saveFloor() {
+  const name = document.getElementById('floor-name-input').value.trim() || '図面 ' + (state.floors.length + 1);
+  if (!window._pendingFloorDataUrl) {
+    alert('図面ファイルを選択してください');
+    return;
+  }
+  const floor = {
+    id: 'f_' + Date.now(),
+    name,
+    imageData: window._pendingFloorDataUrl,
+    pins: [],
+    createdAt: new Date().toISOString(),
+  };
+  state.floors.push(floor);
+  save();
+  renderFloorTabs();
+  selectFloor(floor.id);
+  closeModal('floor-modal');
+}
+
+function selectFloor(id) {
+  state.currentFloorId = id;
+  const floor = getFloor(id);
+  renderFloorTabs();
+  if (floor) {
+    loadFloorImage(floor);
+  }
+  if (state.mode === 'list') renderListView();
+  updateSummary();
+}
+
+function getFloor(id) {
+  return state.floors.find(f => f.id === id);
+}
+
+function loadFloorImage(floor) {
+  const img = document.getElementById('plan-img');
+  const noPlan = document.getElementById('no-plan-msg');
+  const wrap = document.getElementById('plan-canvas-wrap');
+
+  img.onload = function() {
+    noPlan.style.display = 'none';
+    const view = document.getElementById('plan-view');
+    const vw = view.offsetWidth, vh = view.offsetHeight;
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const scale = Math.min(vw / iw, vh / ih, 1);
+    transform = {
+      x: (vw - iw * scale) / 2,
+      y: (vh - ih * scale) / 2,
+      scale
+    };
+    applyTransform();
+    renderPins();
+  };
+  img.src = floor.imageData;
+  noPlan.style.display = 'none';
+}
+
+function showNoPlan() {
+  document.getElementById('no-plan-msg').style.display = 'flex';
+  document.getElementById('plan-img').src = '';
+  document.getElementById('pins-layer').innerHTML = '';
+}
+
+function renderFloorTabs() {
+  const tabs = document.getElementById('floor-tabs');
+  tabs.innerHTML = '';
+  state.floors.forEach(f => {
+    const tab = document.createElement('div');
+    tab.className = 'floor-tab' + (f.id === state.currentFloorId ? ' active' : '');
+    tab.textContent = f.name;
+    tab.onclick = () => selectFloor(f.id);
+    tab.onlongpress = () => confirmDeleteFloor(f.id);
+    tabs.appendChild(tab);
+  });
+  const addBtn = document.createElement('div');
+  addBtn.className = 'floor-tab add-btn';
+  addBtn.textContent = '＋ 図面追加';
+  addBtn.onclick = showFloorModal;
+  tabs.appendChild(addBtn);
+}
+
+// ========== PINS ==========
+function createPin(xPct, yPct) {
+  const floor = getFloor(state.currentFloorId);
+  if (!floor) return;
+  const pin = {
+    id: 'p_' + Date.now(),
+    x: xPct, y: yPct,
+    status: 'none',
+    photos: [],
+    memo: '',
+    createdAt: new Date().toISOString(),
+    num: floor.pins.length + 1,
+  };
+  floor.pins.push(pin);
+  save();
+  renderPins();
+  updateSummary();
+  // Auto-open detail
+  openPinDetail(pin.id);
+}
+
+function renderPins() {
+  const floor = getFloor(state.currentFloorId);
+  if (!floor) return;
+  const layer = document.getElementById('pins-layer');
+  const img = document.getElementById('plan-img');
+  layer.innerHTML = '';
+  layer.style.position = 'absolute';
+  layer.style.left = '0'; layer.style.top = '0';
+  layer.style.width = img.naturalWidth + 'px';
+  layer.style.height = img.naturalHeight + 'px';
+
+  floor.pins.forEach(pin => {
+    const el = document.createElement('div');
+    el.className = 'pin status-' + pin.status;
+    el.style.left = (pin.x * img.naturalWidth) + 'px';
+    el.style.top = (pin.y * img.naturalHeight) + 'px';
+    el.innerHTML = `
+      <svg viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg">
+        <path class="pin-fill" d="M16 0C9.4 0 4 5.4 4 12c0 9 12 28 12 28S28 21 28 12C28 5.4 22.6 0 16 0z"/>
+        <circle cx="16" cy="12" r="6" fill="rgba(0,0,0,0.25)"/>
+      </svg>
+      <div class="pin-num">${pin.num}</div>
+    `;
+    el.addEventListener('click', e => { e.stopPropagation(); openPinDetail(pin.id); });
+    layer.appendChild(el);
+  });
+}
+
+// ========== PIN DETAIL ==========
+let _editingPin = null;
+
+function openPinDetail(pinId) {
+  const floor = getFloor(state.currentFloorId);
+  if (!floor) return;
+  _editingPin = floor.pins.find(p => p.id === pinId);
+  if (!_editingPin) return;
+
+  document.getElementById('pin-modal-title').textContent = '📍 ピン #' + _editingPin.num;
+  document.getElementById('pin-memo').value = _editingPin.memo || '';
+
+  const d = new Date(_editingPin.createdAt);
+  document.getElementById('pin-date').textContent = '作成: ' + d.toLocaleDateString('ja-JP') + ' ' + d.toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'});
+
+  updateStatusChips(_editingPin.status);
+  renderPinPhotos(_editingPin);
+
+  // ZIP button visibility
+  const zipBtn = document.getElementById('btn-pin-zip');
+  if (zipBtn) zipBtn.style.display = _editingPin.photos.length > 0 ? 'block' : 'none';
+
+  openModal('pin-modal');
+}
+
+function updateStatusChips(status) {
+  ['ok','ng','check'].forEach(s => {
+    const chip = document.getElementById('chip-' + s);
+    chip.className = 'status-chip ' + s + (status === s ? ' selected-' + s : '');
+  });
+}
+
+function setPinStatus(status) {
+  if (!_editingPin) return;
+  _editingPin.status = status;
+  updateStatusChips(status);
+}
+
+function renderPinPhotos(pin) {
+  const container = document.getElementById('pin-photos');
+  container.innerHTML = '';
+
+  pin.photos.forEach((photo, i) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'photo-thumb';
+    thumb.innerHTML = `<img src="${photo}" loading="lazy"><button class="del-photo" onclick="deletePhoto(${i})">✕</button>`;
+    thumb.querySelector('img').onclick = () => openPhotoViewer(photo);
+    container.appendChild(thumb);
+  });
+
+  const addBtn = document.createElement('div');
+  addBtn.className = 'add-photo-btn';
+  addBtn.innerHTML = '<span>📷</span><div>撮影</div>';
+  addBtn.onclick = () => {
+    state.pendingPhotoForPin = _editingPin.id;
+    openModal('aspect-modal');
+  };
+  container.appendChild(addBtn);
+}
+
+function deletePhoto(index) {
+  if (!_editingPin) return;
+  _editingPin.photos.splice(index, 1);
+  renderPinPhotos(_editingPin);
+}
+
+function startCapture(aspect) {
+  state.pendingAspect = aspect;
+  closeModal('aspect-modal');
+  document.getElementById('camera-input').click();
+}
+
+function handleCameraCapture(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const aspect = state.pendingAspect || 'free';
+      let sw = img.width, sh = img.height, sx = 0, sy = 0;
+
+      if (aspect !== 'free') {
+        const [aw, ah] = aspect === '4:3' ? [4, 3] : [16, 9];
+        const targetRatio = aw / ah;
+        const srcRatio = img.width / img.height;
+        if (srcRatio > targetRatio) {
+          // 横が余る → 横をトリミング
+          sh = img.height;
+          sw = Math.round(sh * targetRatio);
+          sx = Math.round((img.width - sw) / 2);
+          sy = 0;
+        } else {
+          // 縦が余る → 縦をトリミング
+          sw = img.width;
+          sh = Math.round(sw / targetRatio);
+          sx = 0;
+          sy = Math.round((img.height - sh) / 2);
+        }
+      }
+
+      const maxSize = 1600;
+      let dw = sw, dh = sh;
+      if (dw > maxSize || dh > maxSize) {
+        if (dw > dh) { dh = Math.round(dh * maxSize / dw); dw = maxSize; }
+        else { dw = Math.round(dw * maxSize / dh); dh = maxSize; }
+      }
+      canvas.width = dw; canvas.height = dh;
+      canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+      const compressed = canvas.toDataURL('image/jpeg', 0.8);
+
+      const floor = getFloor(state.currentFloorId);
+      const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
+      if (pin) {
+        pin.photos.push(compressed);
+        save();
+        if (_editingPin && _editingPin.id === pin.id) renderPinPhotos(pin);
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function savePinDetail() {
+  if (!_editingPin) return;
+  _editingPin.memo = document.getElementById('pin-memo').value;
+  save();
+  renderPins();
+  updateSummary();
+  if (state.mode === 'list') renderListView();
+  closeModal('pin-modal');
+}
+
+function deletePin() {
+  if (!_editingPin) return;
+  if (!confirm('ピン #' + _editingPin.num + ' を削除しますか？')) return;
+  const floor = getFloor(state.currentFloorId);
+  floor.pins = floor.pins.filter(p => p.id !== _editingPin.id);
+  // Re-number
+  floor.pins.forEach((p, i) => p.num = i + 1);
+  save();
+  renderPins();
+  updateSummary();
+  if (state.mode === 'list') renderListView();
+  closeModal('pin-modal');
+}
+
+// ========== LIST VIEW ==========
+function renderListView() {
+  const container = document.getElementById('list-view');
+  const floor = getFloor(state.currentFloorId);
+  if (!floor) { container.innerHTML = '<p style="color:var(--text2);text-align:center;padding:40px">図面がありません</p>'; return; }
+
+  if (floor.pins.length === 0) {
+    container.innerHTML = '<p style="color:var(--text2);text-align:center;padding:40px">ピンがありません</p>';
+    return;
+  }
+
+  container.innerHTML = floor.pins.map(pin => `
+    <div class="list-item" onclick="openPinDetail('${pin.id}')">
+      <div class="list-pin-badge badge-${pin.status}">#${pin.num}</div>
+      <div class="list-item-info">
+        <div class="list-item-title">${statusLabel(pin.status)}</div>
+        <div class="list-item-sub">${pin.memo || 'メモなし'}</div>
+      </div>
+      <div class="list-photo-count">📷${pin.photos.length}</div>
+    </div>
+  `).join('');
+}
+
+function statusLabel(s) {
+  return { ok:'✅ OK', ng:'❌ NG', check:'⚠️ 要確認', none:'未設定' }[s] || '未設定';
+}
+
+// ========== SUMMARY ==========
+function updateSummary() {
+  const floor = getFloor(state.currentFloorId);
+  if (!floor) {
+    document.getElementById('sum-total').textContent = '0件';
+    document.getElementById('sum-ok').textContent = 'OK: 0';
+    document.getElementById('sum-ng').textContent = 'NG: 0';
+    document.getElementById('sum-check').textContent = '確認: 0';
+    return;
+  }
+  const pins = floor.pins;
+  document.getElementById('sum-total').textContent = pins.length + '件';
+  document.getElementById('sum-ok').textContent = 'OK: ' + pins.filter(p=>p.status==='ok').length;
+  document.getElementById('sum-ng').textContent = 'NG: ' + pins.filter(p=>p.status==='ng').length;
+  document.getElementById('sum-check').textContent = '確認: ' + pins.filter(p=>p.status==='check').length;
+}
+
+// ========== MODE ==========
+function setMode(mode) {
+  state.mode = mode;
+  ['pin','move','list'].forEach(m => {
+    document.getElementById('btn-' + m + '-mode').classList.toggle('active', m === mode);
+  });
+
+  const planView = document.getElementById('plan-view');
+  const listView = document.getElementById('list-view');
+
+  if (mode === 'list') {
+    planView.style.display = 'none';
+    listView.style.display = 'block';
+    renderListView();
+  } else {
+    planView.style.display = 'block';
+    listView.style.display = 'none';
+    planView.style.cursor = mode === 'pin' ? 'crosshair' : 'grab';
+  }
+}
+
+// ========== TRANSFORM ==========
+function applyTransform() {
+  const wrap = document.getElementById('plan-canvas-wrap');
+  wrap.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
+}
+
+function setupGestures() {
+  const view = document.getElementById('plan-view');
+
+  view.addEventListener('touchstart', onTouchStart, { passive: false });
+  view.addEventListener('touchmove', onTouchMove, { passive: false });
+  view.addEventListener('touchend', onTouchEnd, { passive: false });
+  view.addEventListener('click', onClick);
+}
+
+function onTouchStart(e) {
+  e.preventDefault();
+  gesture.fingers = e.touches.length;
+
+  if (e.touches.length === 1) {
+    gesture.startX = e.touches[0].clientX;
+    gesture.startY = e.touches[0].clientY;
+    gesture.startTX = transform.x;
+    gesture.startTY = transform.y;
+    gesture.moved = false;
+    gesture.startTime = Date.now();
+
+  } else if (e.touches.length === 2) {
+    gesture.startDist = getTouchDist(e.touches);
+    gesture.startScale = transform.scale;
+    gesture.midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    gesture.midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    gesture.startTX = transform.x;
+    gesture.startTY = transform.y;
+    gesture.moved = true;
+  }
+}
+
+function onTouchMove(e) {
+  e.preventDefault();
+
+  if (e.touches.length === 2) {
+    // 2本指：ズーム＋パン（常に有効）
+    const dist = getTouchDist(e.touches);
+    const newScale = Math.max(0.3, Math.min(5, gesture.startScale * dist / gesture.startDist));
+    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const viewRect = document.getElementById('plan-view').getBoundingClientRect();
+    const pivotX = cx - viewRect.left;
+    const pivotY = cy - viewRect.top;
+    const startPivotX = gesture.midX - viewRect.left;
+    const startPivotY = gesture.midY - viewRect.top;
+    const panDX = pivotX - startPivotX;
+    const panDY = pivotY - startPivotY;
+    transform.x = gesture.startTX * newScale / gesture.startScale + startPivotX * (1 - newScale / gesture.startScale) + panDX;
+    transform.y = gesture.startTY * newScale / gesture.startScale + startPivotY * (1 - newScale / gesture.startScale) + panDY;
+    transform.scale = newScale;
+    applyTransform();
+    gesture.moved = true;
+
+  } else if (e.touches.length === 1 && gesture.fingers === 1) {
+    // 1本指：移動モードのみパン
+    const dx = e.touches[0].clientX - gesture.startX;
+    const dy = e.touches[0].clientY - gesture.startY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) gesture.moved = true;
+    if (state.mode === 'move') {
+      transform.x = gesture.startTX + dx;
+      transform.y = gesture.startTY + dy;
+      applyTransform();
+    }
+  }
+}
+
+function onTouchEnd(e) {
+  if (e.touches.length === 0) {
+    // 全指離した → タップ判定
+    if (gesture.fingers === 1 && !gesture.moved && state.mode === 'pin') {
+      const floor = getFloor(state.currentFloorId);
+      if (floor && floor.imageData) {
+        const view = document.getElementById('plan-view');
+        const img = document.getElementById('plan-img');
+        const rect = view.getBoundingClientRect();
+        const touch = e.changedTouches[0];
+        const imgX = (touch.clientX - rect.left - transform.x) / transform.scale;
+        const imgY = (touch.clientY - rect.top - transform.y) / transform.scale;
+        const xPct = imgX / img.naturalWidth;
+        const yPct = imgY / img.naturalHeight;
+        if (xPct >= 0 && xPct <= 1 && yPct >= 0 && yPct <= 1) {
+          createPin(xPct, yPct);
+        }
+      }
+    }
+    gesture.fingers = 0;
+  } else if (e.touches.length === 1) {
+    gesture.fingers = 1;
+    gesture.startX = e.touches[0].clientX;
+    gesture.startY = e.touches[0].clientY;
+    gesture.startTX = transform.x;
+    gesture.startTY = transform.y;
+    gesture.moved = true;
+  }
+}
+
+function onClick(e) {
+  // PCマウス用（タッチはonTouchEndで処理）
+  if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+  if (state.mode !== 'pin') return;
+  if (gesture.moved) return;
+  const floor = getFloor(state.currentFloorId);
+  if (!floor || !floor.imageData) return;
+  const view = document.getElementById('plan-view');
+  const img = document.getElementById('plan-img');
+  const rect = view.getBoundingClientRect();
+  const imgX = (e.clientX - rect.left - transform.x) / transform.scale;
+  const imgY = (e.clientY - rect.top - transform.y) / transform.scale;
+  const xPct = imgX / img.naturalWidth;
+  const yPct = imgY / img.naturalHeight;
+  if (xPct < 0 || xPct > 1 || yPct < 0 || yPct > 1) return;
+  createPin(xPct, yPct);
+}
+
+function getTouchDist(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+// ========== MODAL ==========
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// Click overlay to close
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) closeModal(overlay.id);
+  });
+});
+
+// ========== PHOTO VIEWER ==========
+function openPhotoViewer(src) {
+  document.getElementById('viewer-img').src = src;
+  document.getElementById('photo-viewer').classList.add('open');
+}
+function closePhotoViewer() {
+  document.getElementById('photo-viewer').classList.remove('open');
+}
+
+// ========== EXPORT ==========
+function exportReport() {
+  closeModal('export-modal');
+  const floor = getFloor(state.currentFloorId);
+  if (!floor) { alert('図面がありません'); return; }
+
+  const lines = [`【現場検査レポート】`, `図面: ${floor.name}`, `出力日: ${new Date().toLocaleString('ja-JP')}`, ``];
+  const ok = floor.pins.filter(p=>p.status==='ok').length;
+  const ng = floor.pins.filter(p=>p.status==='ng').length;
+  const chk = floor.pins.filter(p=>p.status==='check').length;
+  lines.push(`ピン総数: ${floor.pins.length}件 / OK:${ok} / NG:${ng} / 要確認:${chk}`, ``);
+
+  floor.pins.forEach(pin => {
+    lines.push(`--- ピン #${pin.num} ---`);
+    lines.push(`状態: ${statusLabel(pin.status)}`);
+    lines.push(`写真: ${pin.photos.length}枚`);
+    if (pin.memo) lines.push(`メモ: ${pin.memo}`);
+    lines.push('');
+  });
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `検査レポート_${floor.name}_${new Date().toLocaleDateString('ja-JP').replace(/\//g,'-')}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportZip() {
+  const floor = getFloor(state.currentFloorId);
+  if (!floor) { alert('図面がありません'); return; }
+  const totalPhotos = floor.pins.reduce((s, p) => s + p.photos.length, 0);
+  if (totalPhotos === 0) { alert('写真がありません'); return; }
+  buildZip([floor]);
+}
+
+function exportZipAll() {
+  const totalPhotos = state.floors.reduce((s, f) => s + f.pins.reduce((ss, p) => ss + p.photos.length, 0), 0);
+  if (totalPhotos === 0) { alert('写真がありません'); return; }
+  buildZip(state.floors);
+}
+
+function exportPinZip() {
+  if (!_editingPin) return;
+  if (_editingPin.photos.length === 0) { alert('写真がありません'); return; }
+  buildPinZip(_editingPin);
+}
+
+function buildPinZip(pin) {
+  if (typeof JSZip === 'undefined') {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    script.onload = () => doPinZip(pin);
+    script.onerror = () => alert('JSZipの読み込みに失敗しました。ネット接続を確認してください。');
+    document.head.appendChild(script);
+  } else {
+    doPinZip(pin);
+  }
+}
+
+async function doPinZip(pin) {
+  const progressWrap = document.getElementById('pin-zip-progress');
+  const progressBar = document.getElementById('pin-zip-bar');
+  const progressText = document.getElementById('pin-zip-text');
+  progressWrap.style.display = 'block';
+
+  const zip = new JSZip();
+  const floor = getFloor(state.currentFloorId);
+  const statusStr = { ok:'OK', ng:'NG', check:'確認中', none:'未設定' }[pin.status] || '未設定';
+
+  // Add memo as txt
+  if (pin.memo) {
+    zip.file('memo.txt', `ピン#${pin.num} [${statusStr}]\n\n${pin.memo}\n作成: ${new Date(pin.createdAt).toLocaleString('ja-JP')}`);
+  }
+
+  pin.photos.forEach((dataUrl, i) => {
+    const base64 = dataUrl.split(',')[1];
+    const ext = dataUrl.includes('image/png') ? 'png' : 'jpg';
+    zip.file(`${String(i+1).padStart(2,'0')}.${ext}`, base64, { base64: true });
+    const pct = Math.round((i+1) / pin.photos.length * 80);
+    progressBar.style.width = pct + '%';
+    progressText.textContent = `まとめています... ${i+1}/${pin.photos.length}枚`;
+  });
+
+  progressText.textContent = '圧縮中...';
+  progressBar.style.width = '90%';
+
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  const date = new Date().toLocaleDateString('ja-JP').replace(/\//g,'-');
+  const floorName = floor ? floor.name : '図面';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${floorName}_ピン${pin.num}_${statusStr}_${date}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  progressBar.style.width = '100%';
+  progressText.textContent = 'ダウンロード完了！';
+  setTimeout(() => {
+    progressWrap.style.display = 'none';
+    progressBar.style.width = '0%';
+  }, 2000);
+}
+
+
+function buildZip(floors) {
+  if (typeof JSZip === 'undefined') {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    script.onload = () => doZip(floors);
+    script.onerror = () => alert('JSZipの読み込みに失敗しました。ネット接続を確認してください。');
+    document.head.appendChild(script);
+  } else {
+    doZip(floors);
+  }
+}
+
+async function doZip(floors) {
+  const progressWrap = document.getElementById('export-progress');
+  const progressBar = document.getElementById('export-progress-bar');
+  const progressText = document.getElementById('export-progress-text');
+  progressWrap.style.display = 'block';
+
+  const zip = new JSZip();
+  let total = floors.reduce((s, f) => s + f.pins.reduce((ss, p) => ss + p.photos.length, 0), 0);
+  let done = 0;
+
+  for (const floor of floors) {
+    const floorFolder = zip.folder(floor.name);
+
+    // Add report txt in each floor folder
+    const lines = [`図面: ${floor.name}`, `出力日: ${new Date().toLocaleString('ja-JP')}`, ``];
+    floor.pins.forEach(pin => {
+      lines.push(`ピン#${pin.num} [${statusLabel(pin.status).replace(/[✅❌⚠️]/g,'').trim()}] 写真${pin.photos.length}枚`);
+      if (pin.memo) lines.push(`  メモ: ${pin.memo}`);
+    });
+    floorFolder.file('report.txt', lines.join('\n'));
+
+    for (const pin of floor.pins) {
+      if (pin.photos.length === 0) continue;
+      const statusStr = { ok:'OK', ng:'NG', check:'確認中', none:'未設定' }[pin.status] || '未設定';
+      const folderName = `ピン${pin.num}_${statusStr}`;
+      const pinFolder = floorFolder.folder(folderName);
+
+      pin.photos.forEach((dataUrl, i) => {
+        const base64 = dataUrl.split(',')[1];
+        const ext = dataUrl.includes('image/png') ? 'png' : 'jpg';
+        pinFolder.file(`${String(i+1).padStart(2,'0')}.${ext}`, base64, { base64: true });
+        done++;
+        const pct = Math.round(done / total * 100);
+        progressBar.style.width = pct + '%';
+        progressText.textContent = `ZIPを作成中... ${done}/${total}枚`;
+      });
+    }
+  }
+
+  progressText.textContent = 'ZIPを圧縮中...';
+  progressBar.style.width = '100%';
+
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  const date = new Date().toLocaleDateString('ja-JP').replace(/\//g,'-');
+  const name = floors.length === 1 ? floors[0].name : '全図面';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `現場検査_${name}_${date}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  progressWrap.style.display = 'none';
+  progressBar.style.width = '0%';
+  closeModal('export-modal');
+}
+
+// ========== START ==========
+init();
+</script>
+</body>
+</html>
