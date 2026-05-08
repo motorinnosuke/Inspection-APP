@@ -254,6 +254,12 @@
     width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer;
   }
 
+  .btn-camera {
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 10px; padding: 8px 14px; font-size: 14px;
+    font-weight: 700; cursor: pointer; flex-shrink: 0;
+  }
+
   /* CROP BUTTONS */
   .crop-btn {
     flex:1; padding:8px 4px; border-radius:8px; font-size:13px; font-weight:600;
@@ -378,7 +384,10 @@
 <div class="modal-overlay" id="pin-modal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="pin-modal-title">📍 ピン #1</div>
+    <div style="display:flex; align-items:center; margin-bottom:16px; gap:10px;">
+      <div class="modal-title" id="pin-modal-title" style="margin-bottom:0; flex:1;">📍 ピン #1</div>
+      <button class="btn-camera" ontouchend="openAspectModal()" onclick="openAspectModal()">📷 撮影</button>
+    </div>
     <div class="status-row">
       <div class="status-chip ok" id="chip-ok" onclick="setPinStatus('ok')">✅ OK</div>
       <div class="status-chip ng" id="chip-ng" onclick="setPinStatus('ng')">❌ NG</div>
@@ -443,29 +452,22 @@
 
 <!-- Aspect Ratio Modal → 削除してカメラ直起動に変更 -->
 
-<!-- Photo Preview Modal -->
-<div class="modal-overlay" id="preview-modal" style="align-items:stretch; padding:0;">
-  <div id="preview-wrap" style="width:100%; height:100%; display:flex; flex-direction:column; background:#000; padding-top:var(--safe-top); padding-bottom:var(--safe-bottom);">
-
-    <!-- 写真エリア：最大限大きく -->
-    <div style="flex:1; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden;">
-      <canvas id="preview-canvas" style="max-width:100%; max-height:100%; object-fit:contain; display:block;"></canvas>
-    </div>
-
-    <!-- 下部コントロール：コンパクトに -->
-    <div style="flex-shrink:0; background:rgba(0,0,0,0.85); padding:10px 16px; display:flex; align-items:center; gap:10px;">
-      <button id="crop-btn-4:3" class="crop-btn active" ontouchend="selectCrop('4:3')" onclick="selectCrop('4:3')">4:3</button>
-      <button id="crop-btn-16:9" class="crop-btn" ontouchend="selectCrop('16:9')" onclick="selectCrop('16:9')">16:9</button>
-      <div style="flex:1"></div>
-      <button ontouchend="closeModal('preview-modal')" onclick="closeModal('preview-modal')"
-        style="background:rgba(255,255,255,0.1);border:none;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer;">
-        撮り直す
+<!-- Aspect Ratio Modal -->
+<div class="modal-overlay" id="aspect-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📐 撮影比率を選択</div>
+    <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:8px">
+      <button class="aspect-btn" ontouchend="startCapture('4:3')" onclick="startCapture('4:3')">
+        <div class="aspect-preview" style="aspect-ratio:4/3"><span>4:3</span></div>
+        <div class="aspect-label">標準（4:3）</div>
       </button>
-      <button ontouchend="confirmCrop()" onclick="confirmCrop()"
-        style="background:var(--accent);border:none;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">
-        使う ✓
+      <button class="aspect-btn" ontouchend="startCapture('16:9')" onclick="startCapture('16:9')">
+        <div class="aspect-preview" style="aspect-ratio:16/9"><span>16:9</span></div>
+        <div class="aspect-label">ワイド（16:9）</div>
       </button>
     </div>
+    <button class="btn-danger" ontouchend="closeModal('aspect-modal')" onclick="closeModal('aspect-modal')">キャンセル</button>
   </div>
 </div>
 
@@ -862,7 +864,6 @@ function setPinStatus(status) {
 function renderPinPhotos(pin) {
   const container = document.getElementById('pin-photos');
   container.innerHTML = '';
-
   pin.photos.forEach((photo, i) => {
     const thumb = document.createElement('div');
     thumb.className = 'photo-thumb';
@@ -870,15 +871,11 @@ function renderPinPhotos(pin) {
     thumb.querySelector('img').onclick = () => openPhotoViewer(photo);
     container.appendChild(thumb);
   });
+}
 
-  const addBtn = document.createElement('div');
-  addBtn.className = 'add-photo-btn';
-  addBtn.innerHTML = '<span>📷</span><div>撮影</div>';
-  addBtn.onclick = () => {
-    state.pendingPhotoForPin = _editingPin.id;
-    document.getElementById('camera-input').click();
-  };
-  container.appendChild(addBtn);
+function openAspectModal() {
+  state.pendingPhotoForPin = _editingPin ? _editingPin.id : null;
+  openModal('aspect-modal');
 }
 
 function deletePhoto(index) {
@@ -887,141 +884,83 @@ function deletePhoto(index) {
   renderPinPhotos(_editingPin);
 }
 
-function startCapture() {
+function startCapture(aspect) {
+  state.pendingAspect = aspect || '4:3';
+  closeModal('aspect-modal');
   document.getElementById('camera-input').click();
 }
-
-let _pendingRawCanvas = null;
-let _pendingCropMode = '4:3';
 
 function handleCameraCapture(input) {
   const file = input.files[0];
   if (!file) return;
   input.value = '';
 
+  const processCanvas = (c) => {
+    const aspect = state.pendingAspect || '4:3';
+    const sw = c.width, sh = c.height;
+    let sx = 0, sy = 0, cw = sw, ch = sh;
+    const ratioMap = { '4:3': 4/3, '16:9': 16/9 };
+    const target = ratioMap[aspect];
+    if (target) {
+      const srcRatio = sw / sh;
+      if (srcRatio > target) {
+        cw = Math.round(sh * target);
+        sx = Math.round((sw - cw) / 2);
+      } else {
+        ch = Math.round(sw / target);
+        sy = Math.round((sh - ch) / 2);
+      }
+    }
+    const maxSize = 1600;
+    let dw = cw, dh = ch;
+    if (dw > maxSize || dh > maxSize) {
+      if (dw > dh) { dh = Math.round(dh * maxSize / dw); dw = maxSize; }
+      else { dw = Math.round(dw * maxSize / dh); dh = maxSize; }
+    }
+    const out = document.createElement('canvas');
+    out.width = dw; out.height = dh;
+    out.getContext('2d').drawImage(c, sx, sy, cw, ch, 0, 0, dw, dh);
+    const compressed = out.toDataURL('image/jpeg', 0.82);
+
+    const floor = getFloor(state.currentFloorId);
+    const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
+    if (pin) {
+      pin.photos.push(compressed);
+      save();
+      if (_editingPin && _editingPin.id === pin.id) {
+        renderPinPhotos(pin);
+        const zipBtn = document.getElementById('btn-pin-zip');
+        if (zipBtn) zipBtn.style.display = 'block';
+      }
+    }
+  };
+
   if (typeof createImageBitmap !== 'undefined') {
     createImageBitmap(file).then(bitmap => {
       const c = document.createElement('canvas');
-      c.width = bitmap.width;
-      c.height = bitmap.height;
+      c.width = bitmap.width; c.height = bitmap.height;
       c.getContext('2d').drawImage(bitmap, 0, 0);
       bitmap.close();
-      _pendingRawCanvas = c;
-      showPreview('4:3');
-    }).catch(() => fallbackCapture(file));
+      processCanvas(c);
+    }).catch(() => fallbackCapture(file, processCanvas));
   } else {
-    fallbackCapture(file);
+    fallbackCapture(file, processCanvas);
   }
 }
 
-function fallbackCapture(file) {
+function fallbackCapture(file, cb) {
   const reader = new FileReader();
   reader.onload = function(e) {
     const img = new Image();
     img.onload = function() {
       const c = document.createElement('canvas');
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
       c.getContext('2d').drawImage(img, 0, 0);
-      _pendingRawCanvas = c;
-      showPreview('4:3');
+      cb(c);
     };
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
-}
-
-function showPreview(mode) {
-  _pendingCropMode = mode;
-  updateCropButtons(mode);
-  renderPreviewCanvas(mode);
-  openModal('preview-modal');
-}
-
-function getCropRect(mode) {
-  if (!_pendingRawCanvas) return null;
-  const sw = _pendingRawCanvas.width, sh = _pendingRawCanvas.height;
-  let sx = 0, sy = 0, cw = sw, ch = sh;
-  const ratioMap = { '4:3': 4/3, '16:9': 16/9 };
-  const target = ratioMap[mode];
-  if (target) {
-    const srcRatio = sw / sh;
-    if (srcRatio > target) {
-      cw = Math.round(sh * target);
-      sx = Math.round((sw - cw) / 2);
-    } else {
-      ch = Math.round(sw / target);
-      sy = Math.round((sh - ch) / 2);
-    }
-  }
-  return { sx, sy, cw, ch };
-}
-
-function renderPreviewCanvas(mode) {
-  if (!_pendingRawCanvas) return;
-  const rect = getCropRect(mode);
-  const { sx, sy, cw, ch } = rect;
-
-  const view = document.getElementById('preview-wrap');
-  const vw = view.offsetWidth || window.innerWidth;
-  const vh = (view.offsetHeight || window.innerHeight) - 60; // 下部コントロール分
-
-  const scale = Math.min(vw / cw, vh / ch, 1);
-  const dw = Math.round(cw * scale);
-  const dh = Math.round(ch * scale);
-
-  const canvas = document.getElementById('preview-canvas');
-  canvas.width = dw;
-  canvas.height = dh;
-  canvas.style.width = dw + 'px';
-  canvas.style.height = dh + 'px';
-  canvas.getContext('2d').drawImage(_pendingRawCanvas, sx, sy, cw, ch, 0, 0, dw, dh);
-}
-
-function selectCrop(mode) {
-  _pendingCropMode = mode;
-  updateCropButtons(mode);
-  renderPreviewCanvas(mode);
-}
-
-function updateCropButtons(mode) {
-  ['4:3','16:9'].forEach(m => {
-    const btn = document.getElementById('crop-btn-' + m);
-    if (btn) btn.classList.toggle('active', m === mode);
-  });
-}
-
-function confirmCrop() {
-  if (!_pendingRawCanvas) return;
-  const { sx, sy, cw, ch } = getCropRect(_pendingCropMode);
-
-  const maxSize = 1600;
-  let dw = cw, dh = ch;
-  if (dw > maxSize || dh > maxSize) {
-    if (dw > dh) { dh = Math.round(dh * maxSize / dw); dw = maxSize; }
-    else { dw = Math.round(dw * maxSize / dh); dh = maxSize; }
-  }
-
-  const out = document.createElement('canvas');
-  out.width = dw; out.height = dh;
-  out.getContext('2d').drawImage(_pendingRawCanvas, sx, sy, cw, ch, 0, 0, dw, dh);
-  const compressed = out.toDataURL('image/jpeg', 0.82);
-
-  const floor = getFloor(state.currentFloorId);
-  const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
-  if (pin) {
-    pin.photos.push(compressed);
-    save();
-    if (_editingPin && _editingPin.id === pin.id) {
-      renderPinPhotos(pin);
-      const zipBtn = document.getElementById('btn-pin-zip');
-      if (zipBtn) zipBtn.style.display = 'block';
-    }
-  }
-  _pendingRawCanvas = null;
-
-  // プレビューモーダルを閉じてピンモーダルに戻る
-  closeModal('preview-modal');
 }
 
 function savePinDetail() {
