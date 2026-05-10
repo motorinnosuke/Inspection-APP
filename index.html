@@ -735,10 +735,8 @@ function renderFolderTabs() {
     label.style.cursor = 'pointer';
 
     let tapTimer = null;
-    label.addEventListener('click', () => {
-      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; renameFolder(folder.id); }
-      else { tapTimer = setTimeout(() => { tapTimer = null; selectFolder(folder.id); }, 250); }
-    });
+    label.addEventListener('click', () => selectFolder(folder.id));
+    label.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); selectFolder(folder.id); });
 
     const delBtn = document.createElement('span');
     delBtn.className = 'folder-del';
@@ -958,30 +956,27 @@ function renderFloorTabs() {
     const label = document.createElement('span');
     label.textContent = f.name;
     label.style.cursor = 'pointer';
-
-    let tapTimer = null;
-    label.addEventListener('click', () => {
-      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; renameFloor(f.id); }
-      else { tapTimer = setTimeout(() => { tapTimer = null; selectFloor(f.id); }, 250); }
-    });
+    label.addEventListener('click', () => selectFloor(f.id));
+    label.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); selectFloor(f.id); });
 
     const replaceBtn = document.createElement('span');
     replaceBtn.textContent = '🔄';
-    replaceBtn.title = '図面を差し替え';
+    replaceBtn.title = '図面を差し替え・名前変更';
     replaceBtn.style.cssText = 'font-size:11px;cursor:pointer;opacity:0.6;';
     replaceBtn.onclick = e => { e.stopPropagation(); showReplaceFloorModal(f.id); };
+    replaceBtn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); showReplaceFloorModal(f.id); });
 
     const delBtn = document.createElement('span');
     delBtn.textContent = '✕';
     delBtn.style.cssText = 'font-size:11px;opacity:0.5;cursor:pointer;padding:2px 4px;border-radius:4px;';
     delBtn.onclick = e => { e.stopPropagation(); confirmDeleteFloor(f.id); };
+    delBtn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); confirmDeleteFloor(f.id); });
 
     tab.appendChild(label);
     tab.appendChild(replaceBtn);
     tab.appendChild(delBtn);
     tabs.appendChild(tab);
 
-    // 長押しで並び替え
     setupFloorDrag(tab, f);
   });
 
@@ -989,6 +984,7 @@ function renderFloorTabs() {
   addBtn.className = 'floor-tab add-btn';
   addBtn.textContent = '＋ 図面追加';
   addBtn.onclick = showFloorModal;
+  addBtn.addEventListener('touchend', e => { e.preventDefault(); showFloorModal(); });
   tabs.appendChild(addBtn);
 }
 
