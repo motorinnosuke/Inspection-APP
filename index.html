@@ -141,14 +141,6 @@
   .modal-handle { width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin: 0 auto 16px; }
   .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
 
-  /* PREVIEW MODAL - fullscreen override */
-  #preview-modal { align-items: stretch; background: #000; }
-  #preview-modal #preview-wrap {
-    width: 100%; height: 100%;
-    display: flex; flex-direction: column;
-    background: #000;
-  }
-
   /* PIN DETAIL */
   .pin-photos { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
   .photo-thumb {
@@ -357,6 +349,17 @@
     <button class="tool-btn" id="btn-export" onclick="openModal('export-modal')">
       <span class="icon">📤</span><span>エクスポート</span>
     </button>
+  </div>
+</div>
+
+<!-- Rename Floor Modal -->
+<div class="modal-overlay" id="rename-floor-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">✏️ 図面名を変更</div>
+    <input class="input-field" type="text" id="rename-floor-input" placeholder="図面名">
+    <button class="btn-primary" ontouchend="saveRenameFloor()" onclick="saveRenameFloor()">変更する</button>
+    <button class="btn-danger" onclick="closeModal('rename-floor-modal')">キャンセル</button>
   </div>
 </div>
 
@@ -748,8 +751,21 @@ function renderFloorTabs() {
     tab.style.display = 'flex'; tab.style.alignItems = 'center'; tab.style.gap = '6px';
     const label = document.createElement('span');
     label.textContent = f.name;
-    label.onclick = () => selectFloor(f.id);
     label.style.cursor = 'pointer';
+    // シングルタップで選択、ダブルタップで名前変更
+    let tapTimer = null;
+    label.addEventListener('click', () => {
+      if (tapTimer) {
+        clearTimeout(tapTimer);
+        tapTimer = null;
+        renameFloor(f.id);
+      } else {
+        tapTimer = setTimeout(() => {
+          tapTimer = null;
+          selectFloor(f.id);
+        }, 250);
+      }
+    });
     const delBtn = document.createElement('span');
     delBtn.textContent = '✕';
     delBtn.style.cssText = 'font-size:11px;opacity:0.5;cursor:pointer;padding:2px 4px;border-radius:4px;';
@@ -763,6 +779,26 @@ function renderFloorTabs() {
   addBtn.textContent = '＋ 図面追加';
   addBtn.onclick = showFloorModal;
   tabs.appendChild(addBtn);
+}
+
+function renameFloor(id) {
+  const floor = getFloor(id);
+  if (!floor) return;
+  document.getElementById('rename-floor-input').value = floor.name;
+  window._renamingFloorId = id;
+  openModal('rename-floor-modal');
+  setTimeout(() => document.getElementById('rename-floor-input').focus(), 300);
+}
+
+function saveRenameFloor() {
+  const floor = getFloor(window._renamingFloorId);
+  if (!floor) return;
+  const name = document.getElementById('rename-floor-input').value.trim();
+  if (!name) return;
+  floor.name = name;
+  save();
+  renderFloorTabs();
+  closeModal('rename-floor-modal');
 }
 
 // ========== PINS ==========
@@ -875,7 +911,13 @@ function renderPinPhotos(pin) {
 
 function openAspectModal() {
   state.pendingPhotoForPin = _editingPin ? _editingPin.id : null;
-  openModal('aspect-modal');
+  // ピンにすでにアスペクト比が設定されていればスキップ
+  if (_editingPin && _editingPin.aspect) {
+    state.pendingAspect = _editingPin.aspect;
+    document.getElementById('camera-input').click();
+  } else {
+    openModal('aspect-modal');
+  }
 }
 
 function deletePhoto(index) {
@@ -886,6 +928,10 @@ function deletePhoto(index) {
 
 function startCapture(aspect) {
   state.pendingAspect = aspect || '4:3';
+  // ピンにアスペクト比を記憶
+  if (_editingPin && !_editingPin.aspect) {
+    _editingPin.aspect = state.pendingAspect;
+  }
   closeModal('aspect-modal');
   document.getElementById('camera-input').click();
 }
