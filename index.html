@@ -433,10 +433,9 @@
     <select class="input-field" id="floor-folder-select" style="cursor:pointer"></select>
     <div style="margin-bottom:12px">
       <input type="file" id="floor-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleFloorFile(this)">
-      <button class="btn-primary" style="margin-top:0" ontouchend="document.getElementById('floor-file-input').click()" onclick="document.getElementById('floor-file-input').click()">
+      <button class="btn-primary" style="margin-top:0" onclick="document.getElementById('floor-file-input').click()">
         📁 画像/PDFを選択
-      </button>
-    </div>
+      </button>    </div>
     <div id="floor-preview-wrap" style="display:none; margin-bottom:12px">
       <img id="floor-preview" style="width:100%; border-radius:8px; max-height:200px; object-fit:contain; background:#111">
     </div>
@@ -543,6 +542,8 @@
 
 <!-- Hidden file input for camera -->
 <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none" onchange="handleCameraCapture(this)">
+<!-- Hidden file input for floor plan -->
+<input type="file" id="floor-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleFloorFile(this)">
 
 <script>
 // ========== STATE ==========
