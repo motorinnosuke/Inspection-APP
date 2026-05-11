@@ -1419,18 +1419,15 @@ function restoreCameraState() {
 
 // ========== PHOTO CAPTURE ==========
 function handleCameraCapture(input) {
-  alert('撮影検知: ファイル=' + (input.files[0] ? input.files[0].name : 'なし') + 
-    '\npinId=' + state.pendingPhotoForPin + 
-    '\nfloorId=' + state.currentFloorId);
   const file = input.files[0];
-  if (!file) { alert('ファイルがありません'); return; }
+  if (!file) return;
   input.value = '';
 
   const pinId = state.pendingPhotoForPin;
   const floorId = state.currentFloorId;
   const aspect = state.pendingAspect || '4:3';
 
-  if (!pinId) { alert('pinIdが空です'); return; }
+  if (!pinId) return;
 
   const reader = new FileReader();
   reader.onload = function(e) {
@@ -1468,7 +1465,6 @@ function handleCameraCapture(input) {
       state.currentFloorId = floor.id;
       _editingPin = pin;
       save();
-      alert('写真保存完了: ' + pin.photos.length + '枚目');
 
       // 表示更新
       renderPinPhotos(pin);
