@@ -1392,14 +1392,19 @@ function handleCameraCapture(input) {
 
     const floor = getFloor(state.currentFloorId);
     const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
+    console.log('photo save: pendingPhotoForPin=', state.pendingPhotoForPin, 'pin=', pin ? pin.num : 'NOT FOUND', '_editingPin=', _editingPin ? _editingPin.num : 'NULL');
     if (pin) {
       pin.photos.push(compressed);
       save();
-      if (_editingPin && _editingPin.id === pin.id) {
-        renderPinPhotos(pin);
-        const zipBtn = document.getElementById('btn-pin-zip');
-        if (zipBtn) zipBtn.style.display = 'block';
+      // 常に_editingPinを更新して表示を再描画
+      _editingPin = pin;
+      renderPinPhotos(pin);
+      // ピンモーダルが閉じていたら再度開く
+      if (!document.getElementById('pin-modal').classList.contains('open')) {
+        openModal('pin-modal');
       }
+      const zipBtn = document.getElementById('btn-pin-zip');
+      if (zipBtn) zipBtn.style.display = 'block';
     }
     // 処理完了後にリセット（次の撮影のため）
     const ci = document.getElementById('camera-input');
