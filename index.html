@@ -172,6 +172,18 @@
     border: none; color: #fff; border-radius: 50%; width: 22px; height: 22px;
     font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
   }
+  .photo-thumb .save-photo {
+    position: absolute; top: 4px; right: 32px; background: rgba(0,0,0,0.6);
+    border: none; color: #fff; border-radius: 12px; height: 22px;
+    padding: 0 8px; font-size: 11px; cursor: pointer;
+    display: flex; align-items: center; gap: 3px;
+  }
+  .photo-thumb .save-photo:active { background: var(--accent); }
+  .photo-thumb .photo-idx {
+    position: absolute; bottom: 4px; left: 4px; background: rgba(0,0,0,0.6);
+    color: #fff; border-radius: 10px; padding: 2px 8px; font-size: 11px;
+    pointer-events: none;
+  }
   .add-photo-btn {
     width: 100%; padding: 14px; border-radius: 8px; background: var(--surface2);
     border: 1px dashed rgba(255,255,255,0.2);
@@ -1467,7 +1479,12 @@ function renderPinPhotos(pin) {
   pin.photos.forEach((photo, i) => {
     const thumb = document.createElement('div');
     thumb.className = 'photo-thumb';
-    thumb.innerHTML = `<img src="${photo}" loading="lazy"><button class="del-photo" onclick="deletePhoto(${i})">✕</button>`;
+    thumb.innerHTML = `
+      <img src="${photo}" loading="lazy">
+      <button class="save-photo" onclick="event.stopPropagation(); savePhotoToLibrary(${i})">📱 保存</button>
+      <button class="del-photo" onclick="event.stopPropagation(); deletePhoto(${i})">✕</button>
+      <div class="photo-idx">#${i+1}</div>
+    `;
     thumb.querySelector('img').onclick = () => openPhotoViewer(photo);
     container.appendChild(thumb);
   });
@@ -2276,6 +2293,42 @@ async function savePinPhotosToLibrary() {
   } else {
     alert('この環境ではカメラロールへの一括保存に対応していません。\nZIPダウンロードをご利用ください。');
   }
+}
+
+async function savePhotoToLibrary(index) {
+  if (!_editingPin) return;
+  const photo = _editingPin.photos[index];
+  if (!photo) return;
+
+  const floor = getFloor(state.currentFloorId);
+  const baseName = `${floor ? floor.name : '図面'}_ピン${_editingPin.num}_${String(index+1).padStart(2,'0')}`;
+  const blob = dataURLToBlob(photo);
+  const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+  const file = new File([blob], `${baseName}.${ext}`, { type: blob.type });
+
+  // Web Share API: 1枚なら最も安定して動く
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: `ピン #${_editingPin.num} 写真 #${index+1}`,
+      });
+      return;
+    } catch(err) {
+      if (err && err.name === 'AbortError') return;
+      console.warn('navigator.share failed:', err);
+    }
+  }
+
+  // フォールバック: 通常ダウンロード
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function buildPinZip(pin) {
