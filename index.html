@@ -254,15 +254,39 @@
   /* PHOTO VIEWER */
   #photo-viewer {
     position: fixed; inset: 0; background: rgba(0,0,0,0.95);
-    z-index: 200; display: none; flex-direction: column;
-    align-items: center; justify-content: center;
+    z-index: 200; display: none;
+    overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
   }
-  #photo-viewer.open { display: flex; }
-  #photo-viewer img { max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain; }
+  #photo-viewer.open { display: block; }
+  #viewer-stage {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  #photo-viewer img {
+    max-width: 100%;
+    max-height: calc(100vh - 80px);
+    object-fit: contain;
+    transform-origin: 0 0;
+    will-change: transform;
+    -webkit-user-drag: none;
+    pointer-events: none;
+  }
   #photo-viewer .close-viewer {
     position: absolute; top: calc(16px + var(--safe-top)); right: 16px;
-    background: rgba(255,255,255,0.1); border: none; color: #fff;
+    background: rgba(255,255,255,0.4); border: none; color: #fff;
     width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer;
+    z-index: 10;
+  }
+  #viewer-hint {
+    position: absolute; bottom: calc(20px + var(--safe-bottom)); left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); color: rgba(255,255,255,0.7);
+    font-size: 11px; padding: 6px 14px; border-radius: 20px;
+    pointer-events: none; transition: opacity 0.5s; white-space: nowrap;
+    z-index: 10;
   }
 
   /* FLOATING CAMERA BUTTON */
@@ -500,7 +524,10 @@
 <!-- Photo Viewer -->
 <div id="photo-viewer">
   <button class="close-viewer" onclick="closePhotoViewer()">✕</button>
-  <img id="viewer-img" src="" alt="">
+  <div id="viewer-stage">
+    <img id="viewer-img" src="" alt="">
+  </div>
+  <div id="viewer-hint">ピンチで拡大 / ダブルタップでズーム</div>
 </div>
 
 <!-- Export Modal -->
@@ -529,6 +556,21 @@
         <div class="export-btn-sub">すべての図面・ピンをまとめて出力</div>
       </div>
     </button>
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08); font-size:12px; color:var(--text2); margin-bottom:8px">💾 バックアップ・復元</div>
+    <button class="export-menu-btn" onclick="exportBackup()">
+      <span class="export-icon">💾</span>
+      <div>
+        <div class="export-btn-title">バックアップを書き出す</div>
+        <div class="export-btn-sub">全データを1つのJSONファイルで保存</div>
+      </div>
+    </button>
+    <button class="export-menu-btn" onclick="document.getElementById('backup-file-input').click()">
+      <span class="export-icon">📥</span>
+      <div>
+        <div class="export-btn-title">バックアップから復元</div>
+        <div class="export-btn-sub">JSONファイルを読み込んで取り込み</div>
+      </div>
+    </button>
     <div id="export-progress" style="display:none; margin-top:12px">
       <div style="font-size:13px; color:var(--text2); margin-bottom:6px" id="export-progress-text">ZIPを作成中...</div>
       <div style="height:4px; background:var(--surface2); border-radius:2px">
@@ -543,6 +585,34 @@
 </div>
 
 <!-- Aspect Ratio Modal → 削除してカメラ直起動に変更 -->
+
+<!-- Hidden file input for backup import -->
+<input type="file" id="backup-file-input" accept=".json,application/json" style="display:none" onchange="handleBackupFile(this)">
+
+<!-- Import Confirm Modal -->
+<div class="modal-overlay" id="import-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📥 バックアップから復元</div>
+    <div id="import-summary" style="background:var(--surface2); border-radius:var(--radius); padding:12px; margin-bottom:14px; font-size:13px; color:var(--text2); line-height:1.6;"></div>
+    <div style="font-size:12px; color:var(--text2); margin-bottom:6px;">取り込み方法</div>
+    <button class="export-menu-btn" onclick="confirmImport('merge')">
+      <span class="export-icon">➕</span>
+      <div>
+        <div class="export-btn-title">マージ（追加）</div>
+        <div class="export-btn-sub">既存データを残したまま追加する</div>
+      </div>
+    </button>
+    <button class="export-menu-btn" onclick="confirmImport('replace')">
+      <span class="export-icon">♻️</span>
+      <div>
+        <div class="export-btn-title">上書き（置き換え）</div>
+        <div class="export-btn-sub" style="color:var(--ng)">既存データを全削除して置き換え</div>
+      </div>
+    </button>
+    <button class="btn-danger" onclick="cancelImport()">キャンセル</button>
+  </div>
+</div>
 
 <!-- Aspect Ratio Modal -->
 <div class="modal-overlay" id="aspect-modal">
@@ -1708,13 +1778,288 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 });
 
 // ========== PHOTO VIEWER ==========
+let viewerState = {
+  scale: 1, x: 0, y: 0,
+  minScale: 1, maxScale: 6,
+  // pointer tracking
+  pointers: new Map(), // pointerId -> {x, y}
+  startDist: 0,
+  startScale: 1,
+  startMidX: 0, startMidY: 0,
+  startX: 0, startY: 0,
+  // double tap
+  lastTapTime: 0,
+  lastTapX: 0, lastTapY: 0,
+  // base image size after CSS sizing
+  baseW: 0, baseH: 0,
+  baseOffsetX: 0, baseOffsetY: 0,
+};
+
+function applyViewerTransform() {
+  const img = document.getElementById('viewer-img');
+  img.style.transform = `translate(${viewerState.x}px, ${viewerState.y}px) scale(${viewerState.scale})`;
+}
+
+function resetViewerTransform() {
+  viewerState.scale = 1;
+  viewerState.x = 0;
+  viewerState.y = 0;
+  applyViewerTransform();
+}
+
+function measureViewerImage() {
+  const img = document.getElementById('viewer-img');
+  const rect = img.getBoundingClientRect();
+  // Note: at scale=1, x=0,y=0, getBoundingClientRect returns the laid-out image rect
+  viewerState.baseW = img.offsetWidth;
+  viewerState.baseH = img.offsetHeight;
+  // offset from stage origin (top-left) to image top-left at scale=1
+  const stage = document.getElementById('viewer-stage');
+  const sRect = stage.getBoundingClientRect();
+  viewerState.baseOffsetX = rect.left - sRect.left;
+  viewerState.baseOffsetY = rect.top - sRect.top;
+}
+
+function clampViewerPan() {
+  // After scaling around (0,0) with origin top-left, image occupies:
+  // x in [baseOffsetX + x, baseOffsetX + x + baseW*scale]
+  // y in [baseOffsetY + y, baseOffsetY + y + baseH*scale]
+  // We allow the image to be panned but keep at least some part visible.
+  // Specifically, image must cover the viewport at scale > 1, otherwise center it.
+  const stage = document.getElementById('viewer-stage');
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  const imgW = viewerState.baseW * viewerState.scale;
+  const imgH = viewerState.baseH * viewerState.scale;
+  const ox = viewerState.baseOffsetX;
+  const oy = viewerState.baseOffsetY;
+
+  // Horizontal
+  if (imgW <= sw) {
+    // center horizontally: set x so image center == stage center
+    viewerState.x = (sw - imgW) / 2 - ox;
+  } else {
+    const minX = sw - ox - imgW; // right edge >= sw -> ox + x + imgW >= sw -> x >= sw - ox - imgW
+    const maxX = -ox;            // left edge <= 0  -> ox + x <= 0 -> x <= -ox
+    if (viewerState.x < minX) viewerState.x = minX;
+    if (viewerState.x > maxX) viewerState.x = maxX;
+  }
+  // Vertical
+  if (imgH <= sh) {
+    viewerState.y = (sh - imgH) / 2 - oy;
+  } else {
+    const minY = sh - oy - imgH;
+    const maxY = -oy;
+    if (viewerState.y < minY) viewerState.y = minY;
+    if (viewerState.y > maxY) viewerState.y = maxY;
+  }
+}
+
+function setupPhotoViewerGestures() {
+  const viewer = document.getElementById('photo-viewer');
+  const img = document.getElementById('viewer-img');
+
+  const getDist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+  const getMid = (p1, p2) => ({ x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 });
+
+  // Convert client coord to image-local coord (in pre-scale image pixels relative to stage origin)
+  // stageCoord = baseOffset + viewerState.{x,y} + imgLocal * scale
+  // => imgLocal = (stageCoord - baseOffset - viewerState.xy) / scale
+  function stagePointFromClient(cx, cy) {
+    const stage = document.getElementById('viewer-stage');
+    const r = stage.getBoundingClientRect();
+    return { x: cx - r.left, y: cy - r.top };
+  }
+
+  function onPointerDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    viewer.setPointerCapture(e.pointerId);
+    viewerState.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (viewerState.pointers.size === 1) {
+      const sp = stagePointFromClient(e.clientX, e.clientY);
+      viewerState.startMidX = sp.x;
+      viewerState.startMidY = sp.y;
+      viewerState.startX = viewerState.x;
+      viewerState.startY = viewerState.y;
+    } else if (viewerState.pointers.size === 2) {
+      const pts = [...viewerState.pointers.values()];
+      viewerState.startDist = getDist(pts[0], pts[1]);
+      viewerState.startScale = viewerState.scale;
+      const mid = getMid(pts[0], pts[1]);
+      const sp = stagePointFromClient(mid.x, mid.y);
+      viewerState.startMidX = sp.x;
+      viewerState.startMidY = sp.y;
+      viewerState.startX = viewerState.x;
+      viewerState.startY = viewerState.y;
+    }
+  }
+
+  function onPointerMove(e) {
+    if (!viewerState.pointers.has(e.pointerId)) return;
+    viewerState.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (viewerState.pointers.size === 1 && viewerState.scale > 1) {
+      // pan
+      const sp = stagePointFromClient(e.clientX, e.clientY);
+      const dx = sp.x - viewerState.startMidX;
+      const dy = sp.y - viewerState.startMidY;
+      viewerState.x = viewerState.startX + dx;
+      viewerState.y = viewerState.startY + dy;
+      clampViewerPan();
+      applyViewerTransform();
+    } else if (viewerState.pointers.size === 2) {
+      // pinch zoom
+      const pts = [...viewerState.pointers.values()];
+      const dist = getDist(pts[0], pts[1]);
+      if (viewerState.startDist <= 0) {
+        viewerState.startDist = dist;
+        return;
+      }
+      let newScale = viewerState.startScale * (dist / viewerState.startDist);
+      if (newScale < viewerState.minScale) newScale = viewerState.minScale;
+      if (newScale > viewerState.maxScale) newScale = viewerState.maxScale;
+
+      // Zoom around the initial midpoint (in stage coords).
+      // Image-local point at start midpoint:
+      // localX = (startMidX - baseOffsetX - startX) / startScale
+      // After zoom, we want that same local point to remain at startMidX:
+      // startMidX = baseOffsetX + newX + localX * newScale
+      // => newX = startMidX - baseOffsetX - localX * newScale
+      const localX = (viewerState.startMidX - viewerState.baseOffsetX - viewerState.startX) / viewerState.startScale;
+      const localY = (viewerState.startMidY - viewerState.baseOffsetY - viewerState.startY) / viewerState.startScale;
+
+      // Also account for finger drift: shift by midpoint movement
+      const curMid = getMid(pts[0], pts[1]);
+      const csp = stagePointFromClient(curMid.x, curMid.y);
+      const driftX = csp.x - viewerState.startMidX;
+      const driftY = csp.y - viewerState.startMidY;
+
+      viewerState.scale = newScale;
+      viewerState.x = viewerState.startMidX + driftX - viewerState.baseOffsetX - localX * newScale;
+      viewerState.y = viewerState.startMidY + driftY - viewerState.baseOffsetY - localY * newScale;
+      clampViewerPan();
+      applyViewerTransform();
+    }
+  }
+
+  function onPointerUp(e) {
+    viewerState.pointers.delete(e.pointerId);
+    try { viewer.releasePointerCapture(e.pointerId); } catch(_) {}
+
+    // If we just dropped from 2 fingers to 1, reset single-finger start anchor
+    if (viewerState.pointers.size === 1) {
+      const [p] = viewerState.pointers.values();
+      const sp = stagePointFromClient(p.x, p.y);
+      viewerState.startMidX = sp.x;
+      viewerState.startMidY = sp.y;
+      viewerState.startX = viewerState.x;
+      viewerState.startY = viewerState.y;
+    }
+
+    // Snap back if below min
+    if (viewerState.pointers.size === 0 && viewerState.scale < 1.02) {
+      resetViewerTransform();
+    }
+  }
+
+  viewer.addEventListener('pointerdown', onPointerDown);
+  viewer.addEventListener('pointermove', onPointerMove);
+  viewer.addEventListener('pointerup', onPointerUp);
+  viewer.addEventListener('pointercancel', onPointerUp);
+
+  // Double tap to toggle zoom
+  viewer.addEventListener('pointerup', (e) => {
+    if (e.pointerType === 'mouse') return;
+    // Only react when this was a tap (no pinch active)
+    if (viewerState.pointers.size > 0) return;
+
+    const now = Date.now();
+    const dt = now - viewerState.lastTapTime;
+    const dx = e.clientX - viewerState.lastTapX;
+    const dy = e.clientY - viewerState.lastTapY;
+    const dist = Math.hypot(dx, dy);
+
+    if (dt < 300 && dist < 30) {
+      // Double tap
+      const sp = stagePointFromClient(e.clientX, e.clientY);
+      if (viewerState.scale > 1.05) {
+        resetViewerTransform();
+      } else {
+        const targetScale = 2.5;
+        // zoom around (sp.x, sp.y)
+        const localX = (sp.x - viewerState.baseOffsetX - viewerState.x) / viewerState.scale;
+        const localY = (sp.y - viewerState.baseOffsetY - viewerState.y) / viewerState.scale;
+        viewerState.scale = targetScale;
+        viewerState.x = sp.x - viewerState.baseOffsetX - localX * targetScale;
+        viewerState.y = sp.y - viewerState.baseOffsetY - localY * targetScale;
+        clampViewerPan();
+        applyViewerTransform();
+      }
+      viewerState.lastTapTime = 0;
+    } else {
+      viewerState.lastTapTime = now;
+      viewerState.lastTapX = e.clientX;
+      viewerState.lastTapY = e.clientY;
+    }
+  });
+
+  // Mouse wheel zoom (for iPad with mouse / desktop)
+  viewer.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const sp = stagePointFromClient(e.clientX, e.clientY);
+    const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+    let newScale = viewerState.scale * factor;
+    if (newScale < viewerState.minScale) newScale = viewerState.minScale;
+    if (newScale > viewerState.maxScale) newScale = viewerState.maxScale;
+    const localX = (sp.x - viewerState.baseOffsetX - viewerState.x) / viewerState.scale;
+    const localY = (sp.y - viewerState.baseOffsetY - viewerState.y) / viewerState.scale;
+    viewerState.scale = newScale;
+    viewerState.x = sp.x - viewerState.baseOffsetX - localX * newScale;
+    viewerState.y = sp.y - viewerState.baseOffsetY - localY * newScale;
+    clampViewerPan();
+    applyViewerTransform();
+  }, { passive: false });
+
+  // Recompute base size after image loads
+  img.addEventListener('load', () => {
+    resetViewerTransform();
+    measureViewerImage();
+  });
+
+  // Recompute on resize / orientation change
+  window.addEventListener('resize', () => {
+    if (document.getElementById('photo-viewer').classList.contains('open')) {
+      resetViewerTransform();
+      measureViewerImage();
+    }
+  });
+}
+
 function openPhotoViewer(src) {
-  document.getElementById('viewer-img').src = src;
+  const img = document.getElementById('viewer-img');
+  resetViewerTransform();
+  img.src = src;
   document.getElementById('photo-viewer').classList.add('open');
+  // measure after layout
+  requestAnimationFrame(() => {
+    measureViewerImage();
+  });
+  // Show hint, then fade
+  const hint = document.getElementById('viewer-hint');
+  if (hint) {
+    hint.style.opacity = '1';
+    clearTimeout(openPhotoViewer._hintTimer);
+    openPhotoViewer._hintTimer = setTimeout(() => { hint.style.opacity = '0'; }, 2000);
+  }
 }
 function closePhotoViewer() {
   document.getElementById('photo-viewer').classList.remove('open');
+  resetViewerTransform();
 }
+
+// Initialize viewer gestures once DOM is ready
+setupPhotoViewerGestures();
 
 // ========== EXPORT ==========
 function exportReport() {
@@ -1892,6 +2237,208 @@ async function doZip(floors) {
   closeModal('export-modal');
 }
 
+
+
+
+
+// ========== BACKUP / IMPORT ==========
+const BACKUP_VERSION = 1;
+let _pendingImport = null; // {folders, floors}
+
+function estimateBackupSize() {
+  // Rough: sum length of dataURLs as bytes proxy
+  let bytes = 0;
+  for (const f of state.floors) {
+    if (f.imageData) bytes += f.imageData.length;
+    for (const p of (f.pins || [])) {
+      for (const ph of (p.photos || [])) bytes += ph.length;
+    }
+  }
+  return bytes;
+}
+
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1024*1024*1024) return (n/1024/1024).toFixed(1) + ' MB';
+  return (n/1024/1024/1024).toFixed(2) + ' GB';
+}
+
+function exportBackup() {
+  const approx = estimateBackupSize();
+  if (state.folders.length === 0 && state.floors.length === 0) {
+    alert('バックアップ対象のデータがありません');
+    return;
+  }
+  if (approx > 200 * 1024 * 1024) {
+    if (!confirm(`バックアップサイズが約 ${formatBytes(approx)} と大きいです。\n書き出しに時間がかかる可能性があります。続行しますか？`)) return;
+  }
+
+  closeModal('export-modal');
+
+  try {
+    const backup = {
+      app: 'inspection_app_v2',
+      version: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      folders: state.folders,
+      floors: state.floors,
+    };
+    const json = JSON.stringify(backup);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toLocaleDateString('ja-JP').replace(/\//g,'-');
+    a.href = url;
+    a.download = `現場検査_バックアップ_${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch(e) {
+    alert('バックアップ書き出し失敗: ' + e.message);
+  }
+}
+
+function handleBackupFile(input) {
+  const file = input.files && input.files[0];
+  input.value = ''; // allow re-selecting same file later
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || typeof data !== 'object') throw new Error('JSONの形式が不正です');
+      if (!Array.isArray(data.folders) || !Array.isArray(data.floors)) {
+        throw new Error('folders / floors が見つかりません');
+      }
+      // Light validation
+      for (const fl of data.floors) {
+        if (typeof fl.id !== 'string' || typeof fl.name !== 'string') {
+          throw new Error('図面データの形式が不正です');
+        }
+        if (!Array.isArray(fl.pins)) fl.pins = [];
+      }
+      _pendingImport = data;
+      showImportSummary(data);
+      openModal('import-modal');
+    } catch(err) {
+      alert('読み込めませんでした: ' + err.message);
+    }
+  };
+  reader.onerror = () => alert('ファイルの読み込みに失敗しました');
+  reader.readAsText(file);
+}
+
+function showImportSummary(data) {
+  const folderCount = data.folders.length;
+  const floorCount = data.floors.length;
+  let pinCount = 0, photoCount = 0;
+  for (const f of data.floors) {
+    pinCount += (f.pins || []).length;
+    for (const p of (f.pins || [])) photoCount += (p.photos || []).length;
+  }
+  const exported = data.exportedAt ? new Date(data.exportedAt).toLocaleString('ja-JP') : '不明';
+  const el = document.getElementById('import-summary');
+  el.innerHTML = `
+    <div>書き出し日時: ${exported}</div>
+    <div>フォルダ: ${folderCount}件 / 図面: ${floorCount}件</div>
+    <div>ピン: ${pinCount}件 / 写真: ${photoCount}枚</div>
+  `;
+}
+
+function cancelImport() {
+  _pendingImport = null;
+  closeModal('import-modal');
+}
+
+async function confirmImport(mode) {
+  if (!_pendingImport) { closeModal('import-modal'); return; }
+
+  if (mode === 'replace') {
+    if (!confirm('既存データを全て削除して、バックアップで置き換えます。\nこの操作は元に戻せません。よろしいですか？')) return;
+  }
+
+  const data = _pendingImport;
+
+  try {
+    if (mode === 'replace') {
+      state.folders = JSON.parse(JSON.stringify(data.folders));
+      state.floors = JSON.parse(JSON.stringify(data.floors));
+    } else {
+      // merge: re-ID anything that collides
+      const existingFolderIds = new Set(state.folders.map(f => f.id));
+      const existingFloorIds = new Set(state.floors.map(f => f.id));
+      const folderIdMap = {}; // oldId -> newId
+
+      const maxFolderOrder = state.folders.reduce((m,f)=>Math.max(m, f.order||0), -1);
+      const maxFloorOrder = state.floors.reduce((m,f)=>Math.max(m, f.order||0), -1);
+
+      data.folders.forEach((f, i) => {
+        const copy = JSON.parse(JSON.stringify(f));
+        if (existingFolderIds.has(copy.id)) {
+          const newId = 'folder_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+          folderIdMap[copy.id] = newId;
+          copy.id = newId;
+        }
+        copy.order = maxFolderOrder + 1 + i;
+        state.folders.push(copy);
+        existingFolderIds.add(copy.id);
+      });
+
+      data.floors.forEach((fl, i) => {
+        const copy = JSON.parse(JSON.stringify(fl));
+        if (existingFloorIds.has(copy.id)) {
+          copy.id = 'floor_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+        }
+        // remap folderId if folder was renamed
+        if (copy.folderId && folderIdMap[copy.folderId]) {
+          copy.folderId = folderIdMap[copy.folderId];
+        }
+        // if folderId references a non-existent folder, create / attach to "復元" folder
+        if (!copy.folderId || !state.folders.some(f => f.id === copy.folderId)) {
+          let restoredFolder = state.folders.find(f => f.name === '復元');
+          if (!restoredFolder) {
+            restoredFolder = {
+              id: 'folder_restored_' + Date.now(),
+              name: '復元',
+              order: maxFolderOrder + 1 + data.folders.length,
+            };
+            state.folders.push(restoredFolder);
+          }
+          copy.folderId = restoredFolder.id;
+        }
+        copy.order = maxFloorOrder + 1 + i;
+        state.floors.push(copy);
+        existingFloorIds.add(copy.id);
+      });
+    }
+
+    await save();
+
+    // refresh UI
+    if (state.folders.length > 0) {
+      const sortedFolders = [...state.folders].sort((a,b)=>(a.order||0)-(b.order||0));
+      state.currentFolderId = sortedFolders[0].id;
+    }
+    renderFolderTabs();
+    renderFloorTabs();
+    const floorsInFolder = getFloorsInFolder(state.currentFolderId);
+    if (floorsInFolder.length > 0) {
+      selectFloor(floorsInFolder.sort((a,b)=>(a.order||0)-(b.order||0))[0].id);
+    } else {
+      showNoPlan();
+    }
+
+    _pendingImport = null;
+    closeModal('import-modal');
+    closeModal('export-modal');
+    alert(mode === 'replace' ? '復元が完了しました（上書き）' : '復元が完了しました（マージ）');
+  } catch(e) {
+    alert('復元に失敗しました: ' + e.message);
+  }
+}
 
 
 // ========== RESET ==========
