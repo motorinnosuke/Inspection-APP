@@ -1855,18 +1855,21 @@ async function doZip(floors) {
 }
 
 // ========== VISIBILITY CHANGE (iOSカメラ復帰対策) ==========
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    // カメラから戻ってきた時にピンモーダルを再表示
-    if (state.pendingPhotoForPin && _editingPin) {
-      const floor = getFloor(state.currentFloorId);
-      const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
-      if (pin) {
-        _editingPin = pin;
-        renderPinPhotos(pin);
-        if (!document.getElementById('pin-modal').classList.contains('open')) {
-          openModal('pin-modal');
-        }
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && state.pendingPhotoForPin) {
+    // IndexedDBから最新データを再読み込み
+    await load();
+    const floor = getFloor(state.currentFloorId);
+    const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
+    if (pin) {
+      _editingPin = pin;
+      renderPinPhotos(pin);
+      renderPinColorPicker(pin);
+      updateStatusChips(pin.status);
+      const zipBtn = document.getElementById('btn-pin-zip');
+      if (zipBtn) zipBtn.style.display = pin.photos.length > 0 ? 'block' : 'none';
+      if (!document.getElementById('pin-modal').classList.contains('open')) {
+        openModal('pin-modal');
       }
     }
   }
