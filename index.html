@@ -668,7 +668,8 @@ async function load() {
 
 async function init() {
   await load();
-  // 最初のフォルダを選択
+  fixOrphanedFloors();
+  await save(); // 修正したfolderIdを保存
   if (state.folders.length > 0) {
     state.currentFolderId = state.folders.sort((a,b)=>a.order-b.order)[0].id;
   }
@@ -676,7 +677,7 @@ async function init() {
   renderFloorTabs();
   const floorsInFolder = getFloorsInFolder(state.currentFolderId);
   if (floorsInFolder.length > 0) {
-    selectFloor(floorsInFolder.sort((a,b)=>a.order-b.order)[0].id);
+    selectFloor(floorsInFolder.sort((a,b)=>(a.order||0)-(b.order||0))[0].id);
   } else {
     showNoPlan();
   }
@@ -689,6 +690,19 @@ async function init() {
 // ========== FOLDERS ==========
 function getFloorsInFolder(folderId) {
   return state.floors.filter(f => f.folderId === folderId);
+}
+
+function fixOrphanedFloors() {
+  // folderIdがない、またはフォルダが存在しない図面をデフォルトフォルダに割り当て
+  const folderIds = new Set(state.folders.map(f => f.id));
+  const defaultId = state.folders.length > 0 ? state.folders.sort((a,b)=>a.order-b.order)[0].id : null;
+  if (!defaultId) return;
+  state.floors.forEach(f => {
+    if (!f.folderId || !folderIds.has(f.folderId)) {
+      console.log('Fixing orphaned floor:', f.name, 'folderId was:', f.folderId, '→', defaultId);
+      f.folderId = defaultId;
+    }
+  });
 }
 
 function showAddMenu() { openModal('add-menu-modal'); }
@@ -712,9 +726,12 @@ function saveFolder() {
 
 function selectFolder(id) {
   state.currentFolderId = id;
+  console.log('selectFolder:', id);
+  console.log('all floors:', state.floors.map(f => ({id:f.id, name:f.name, folderId:f.folderId})));
+  const floors = getFloorsInFolder(id).sort((a,b)=>(a.order||0)-(b.order||0));
+  console.log('floors in folder:', floors.length);
   renderFolderTabs();
   renderFloorTabs();
-  const floors = getFloorsInFolder(id).sort((a,b)=>(a.order||0)-(b.order||0));
   if (floors.length > 0) {
     selectFloor(floors[0].id);
   } else {
