@@ -714,9 +714,14 @@ function selectFolder(id) {
   state.currentFolderId = id;
   renderFolderTabs();
   renderFloorTabs();
-  const floors = getFloorsInFolder(id).sort((a,b)=>a.order-b.order);
-  if (floors.length > 0) selectFloor(floors[0].id);
-  else { state.currentFloorId = null; showNoPlan(); updateSummary(); }
+  const floors = getFloorsInFolder(id).sort((a,b)=>(a.order||0)-(b.order||0));
+  if (floors.length > 0) {
+    selectFloor(floors[0].id);
+  } else {
+    state.currentFloorId = null;
+    showNoPlan();
+    updateSummary();
+  }
 }
 
 function renderFolderTabs() {
@@ -733,7 +738,6 @@ function renderFolderTabs() {
     label.textContent = '📁 ' + folder.name;
     label.style.cursor = 'pointer';
 
-    let tapTimer = null;
     label.addEventListener('click', () => selectFolder(folder.id));
     label.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); selectFolder(folder.id); });
 
@@ -741,13 +745,13 @@ function renderFolderTabs() {
     delBtn.className = 'folder-del';
     delBtn.textContent = '✕';
     delBtn.style.cursor = 'pointer';
-    delBtn.onclick = e => { e.stopPropagation(); confirmDeleteFolder(folder.id); };
+    delBtn.addEventListener('click', e => { e.stopPropagation(); confirmDeleteFolder(folder.id); });
+    delBtn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); confirmDeleteFolder(folder.id); });
 
     tab.appendChild(label);
     tab.appendChild(delBtn);
     tabs.appendChild(tab);
 
-    // 長押しで並び替え
     setupFolderDrag(tab, folder);
   });
 
