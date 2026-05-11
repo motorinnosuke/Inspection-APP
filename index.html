@@ -1379,7 +1379,7 @@ function handleCameraCapture(input) {
         sy = Math.round((sh - ch) / 2);
       }
     }
-    const maxSize = 1600;
+    const maxSize = 1280;
     let dw = cw, dh = ch;
     if (dw > maxSize || dh > maxSize) {
       if (dw > dh) { dh = Math.round(dh * maxSize / dw); dw = maxSize; }
@@ -1388,14 +1388,21 @@ function handleCameraCapture(input) {
     const out = document.createElement('canvas');
     out.width = dw; out.height = dh;
     out.getContext('2d').drawImage(c, sx, sy, cw, ch, 0, 0, dw, dh);
-    const compressed = out.toDataURL('image/jpeg', 0.82);
+    const compressed = out.toDataURL('image/jpeg', 0.65);
 
     const floor = getFloor(state.currentFloorId);
     const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
     console.log('photo save: pendingPhotoForPin=', state.pendingPhotoForPin, 'pin=', pin ? pin.num : 'NOT FOUND', '_editingPin=', _editingPin ? _editingPin.num : 'NULL');
     if (pin) {
       pin.photos.push(compressed);
-      save();
+      // 保存前にサイズ確認
+      const totalSize = pin.photos.reduce((s, p) => s + p.length, 0);
+      console.log('Total photos:', pin.photos.length, 'Total size:', Math.round(totalSize/1024), 'KB');
+      save().catch(e => {
+        // 保存失敗したら最後の写真を削除
+        pin.photos.pop();
+        alert('写真の保存に失敗しました。ストレージ不足の可能性があります。');
+      });
       // 常に_editingPinを更新して表示を再描画
       _editingPin = pin;
       renderPinPhotos(pin);
