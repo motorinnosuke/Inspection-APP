@@ -1406,9 +1406,63 @@ function restoreCameraState() {
   }
 }
 
+async function savePhotoToPin(compressed, pinId, floorId) {
+  try {
+    // 必ずIndexedDBから最新データを読み込む
+    await load();
+    
+    // floorIdとpinIdで検索
+    let targetFloor = getFloor(floorId);
+    if (!targetFloor) {
+      // floorIdが一致しない場合は全フロアから検索
+      targetFloor = state.floors.find(f => f.pins && f.pins.some(p => p.id === pinId));
+    }
+    
+    const pin = targetFloor && targetFloor.pins.find(p => p.id === pinId);
+    if (!pin) {
+      alert('ピンが見つかりませんでした。もう一度試してください。');
+      return;
+    }
+    
+    pin.photos.push(compressed);
+    await save();
+    
+    // 表示を更新
+    _editingPin = pin;
+    state.currentFloorId = targetFloor.id;
+    
+    renderPinPhotos(pin);
+    
+    const titleEl = document.getElementById('pin-modal-title');
+    if (titleEl) titleEl.textContent = '📍 ピン #' + pin.num;
+    const memoEl = document.getElementById('pin-memo');
+    if (memoEl) memoEl.value = pin.memo || '';
+    updateStatusChips(pin.status);
+    renderPinColorPicker(pin);
+    
+    const zipBtn = document.getElementById('btn-pin-zip');
+    if (zipBtn) zipBtn.style.display = 'block';
+    
+    if (!document.getElementById('pin-modal').classList.contains('open')) {
+      openModal('pin-modal');
+      document.getElementById('float-camera-btn').style.display = 'flex';
+    }
+    
+    // localStorageのカメラ状態をクリア
+    localStorage.removeItem('_cam_pinId');
+    localStorage.removeItem('_cam_aspect');
+    localStorage.removeItem('_cam_floorId');
+    
+  } catch(e) {
+    alert('写真の保存に失敗しました: ' + e.message);
+  }
+}
+
 function handleCameraCapture(input) {
   const file = input.files[0];
   if (!file) return;
+  // まずlocalStorageから状態を復元
+  restoreCameraState();
 
   const processCanvas = (c) => {
     const aspect = state.pendingAspect || '4:3';
@@ -1437,32 +1491,8 @@ function handleCameraCapture(input) {
     out.getContext('2d').drawImage(c, sx, sy, cw, ch, 0, 0, dw, dh);
     const compressed = out.toDataURL('image/jpeg', 0.65);
 
-    const floor = getFloor(state.currentFloorId);
-    const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
-    console.log('photo save: pendingPhotoForPin=', state.pendingPhotoForPin, 'pin=', pin ? pin.num : 'NOT FOUND', '_editingPin=', _editingPin ? _editingPin.num : 'NULL');
-    if (pin) {
-      pin.photos.push(compressed);
-      // 保存前にサイズ確認
-      const totalSize = pin.photos.reduce((s, p) => s + p.length, 0);
-      console.log('Total photos:', pin.photos.length, 'Total size:', Math.round(totalSize/1024), 'KB');
-      save().catch(e => {
-        // 保存失敗したら最後の写真を削除
-        pin.photos.pop();
-        alert('写真の保存に失敗しました。ストレージ不足の可能性があります。');
-      });
-      // 常に_editingPinを更新して表示を再描画
-      _editingPin = pin;
-      renderPinPhotos(pin);
-      // ピンモーダルが閉じていたら再度開く
-      if (!document.getElementById('pin-modal').classList.contains('open')) {
-        openModal('pin-modal');
-      }
-      const zipBtn = document.getElementById('btn-pin-zip');
-      if (zipBtn) zipBtn.style.display = 'block';
-    }
-    // 処理完了後にリセット（次の撮影のため）
-    const ci = document.getElementById('camera-input');
-    if (ci) ci.value = '';
+    // IndexedDBから最新データを取得して保存（iOSメモリ解放対策）
+    savePhotoToPin(compressed, state.pendingPhotoForPin, state.currentFloorId);
   };
 
   if (typeof createImageBitmap !== 'undefined') {
