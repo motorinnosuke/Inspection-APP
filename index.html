@@ -564,7 +564,7 @@
 </div>
 
 <!-- Hidden file input for camera -->
-<input type="file" id="camera-input" accept="image/*" style="display:none" onchange="handleCameraCapture(this)">
+<!-- camera input is created dynamically -->
 <!-- Hidden file input for floor plan -->
 <input type="file" id="floor-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleFloorFile(this)">
 
@@ -1359,15 +1359,27 @@ function renderPinPhotos(pin) {
   });
 }
 
+function createCameraInput() {
+  // 毎回新しいinputを作成（iOSでonchangeを確実に発火させるため）
+  const old = document.getElementById('camera-input');
+  if (old) old.remove();
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.id = 'camera-input';
+  input.accept = 'image/*';
+  input.style.display = 'none';
+  input.onchange = function() { handleCameraCapture(this); };
+  document.body.appendChild(input);
+  return input;
+}
+
 function openAspectModal() {
   if (!_editingPin) return;
   state.pendingPhotoForPin = _editingPin.id;
-  state.currentFloorId = state.currentFloorId;
-  document.getElementById('camera-input').value = '';
   if (_editingPin.aspect) {
     state.pendingAspect = _editingPin.aspect;
     saveCameraState();
-    document.getElementById('camera-input').click();
+    createCameraInput().click();
   } else {
     openModal('aspect-modal');
   }
@@ -1383,10 +1395,9 @@ function deletePhoto(index) {
 function startCapture(aspect) {
   state.pendingAspect = aspect || '4:3';
   if (_editingPin && !_editingPin.aspect) _editingPin.aspect = state.pendingAspect;
-  document.getElementById('camera-input').value = '';
   saveCameraState();
   closeModal('aspect-modal');
-  document.getElementById('camera-input').click();
+  createCameraInput().click();
 }
 
 function saveCameraState() {
