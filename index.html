@@ -1365,9 +1365,14 @@ function renderPinPhotos(pin) {
 function openAspectModal() {
   state.pendingPhotoForPin = _editingPin ? _editingPin.id : null;
   document.getElementById('camera-input').value = '';
+  // ピンにアスペクト比が設定済み、またはlocalStorageに保存済みなら選択画面をスキップ
+  const savedAspect = localStorage.getItem('_cam_aspect');
   if (_editingPin && _editingPin.aspect) {
     state.pendingAspect = _editingPin.aspect;
     saveCameraState();
+    document.getElementById('camera-input').click();
+  } else if (savedAspect && state.pendingPhotoForPin === localStorage.getItem('_cam_pinId')) {
+    state.pendingAspect = savedAspect;
     document.getElementById('camera-input').click();
   } else {
     openModal('aspect-modal');
@@ -1440,6 +1445,8 @@ async function savePhotoToPin(compressed, pinId, floorId) {
     // photosも同期（後方互換）
     if (!pin.photos) pin.photos = [];
     pin.photos.push(compressed);
+    // アスペクト比をピンに保存（次回スキップのため）
+    if (!pin.aspect && state.pendingAspect) pin.aspect = state.pendingAspect;
     await save();
 
     // 表示更新
