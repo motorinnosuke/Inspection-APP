@@ -705,6 +705,9 @@ async function init() {
   setTimeout(() => {
     document.getElementById('zoom-hint').style.opacity = '0';
   }, 3000);
+
+  // カメラから復帰した場合の写真処理（init完了後に実行）
+  setTimeout(() => processTempPhoto(), 800);
 }
 
 // ========== FOLDERS ==========
@@ -1480,31 +1483,66 @@ function handleCameraCapture(input) {
   restoreCameraState();
 
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     try {
-      // 写真データをlocalStorageに一時保存（iOSリロード対策）
-      const tempKey = '_temp_photo_' + Date.now();
-      localStorage.setItem(tempKey, e.target.result);
-      localStorage.setItem('_temp_photo_key', tempKey);
-      // 即座に処理
-      processTempPhoto();
+      // 写真データをIndexedDBに一時保存（localStorageより大容量）
+      const db = await openDB();
+      const tempId = 'temp_photo_' + Date.now();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(STORE_PHOTOS, 'readwrite');
+        tx.objectStore(STORE_PHOTOS).put({
+          id: tempId,
+          pinId: state.pendingPhotoForPin || localStorage.getItem('_cam_pinId'),
+          floorId: state.currentFloorId || localStorage.getItem('_cam_floorId'),
+          aspect: state.pendingAspect || localStorage.getItem('_cam_aspect') || '4:3',
+          data: e.target.result,
+          temp: true,
+          createdAt: new Date().toISOString()
+        });
+        tx.oncomplete = res;
+        tx.onerror = () => rej(tx.error);
+      });
+      localStorage.setItem('_temp_photo_id', tempId);
     } catch(err) {
-      // localStorageが満杯の場合は直接処理
+      // フォールバック：直接処理
       processImageData(e.target.result);
     }
   };
   reader.readAsDataURL(file);
 }
 
-function processTempPhoto() {
-  const tempKey = localStorage.getItem('_temp_photo_key');
-  if (!tempKey) return;
-  const dataUrl = localStorage.getItem(tempKey);
-  if (!dataUrl) return;
-  // 使用済みの一時データを削除
-  localStorage.removeItem(tempKey);
-  localStorage.removeItem('_temp_photo_key');
-  processImageData(dataUrl);
+async function processTempPhoto() {
+  const tempId = localStorage.getItem('_temp_photo_id');
+  if (!tempId) return;
+  try {
+    const db = await openDB();
+    const record = await new Promise((res, rej) => {
+      const tx = db.transaction(STORE_PHOTOS, 'readonly');
+      const req = tx.objectStore(STORE_PHOTOS).get(tempId);
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => rej(req.error);
+    });
+    if (!record) { localStorage.removeItem('_temp_photo_id'); return; }
+    
+    // localStorageのカメラ状態を一時レコードから復元
+    if (record.pinId) state.pendingPhotoForPin = record.pinId;
+    if (record.floorId) state.currentFloorId = record.floorId;
+    if (record.aspect) state.pendingAspect = record.aspect;
+    
+    // 一時レコードを削除
+    await new Promise((res, rej) => {
+      const tx = db.transaction(STORE_PHOTOS, 'readwrite');
+      tx.objectStore(STORE_PHOTOS).delete(tempId);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+    localStorage.removeItem('_temp_photo_id');
+    
+    // 写真を処理・保存
+    processImageData(record.data);
+  } catch(e) {
+    localStorage.removeItem('_temp_photo_id');
+  }
 }
 
 function processImageData(dataUrl) {
@@ -1950,39 +1988,11 @@ async function doZip(floors) {
   closeModal('export-modal');
 }
 
-// ========== PAGE SHOW (iOSカメラ復帰対策) ==========
-// pageshow は bfcache から復帰する時も含めて確実に発火する
-window.addEventListener('pageshow', async (e) => {
-  // 一時保存された写真があれば処理
-  processTempPhoto();
-});
-
 // ========== VISIBILITY CHANGE (iOSカメラ復帰対策) ==========
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible') {
-    // localStorageから状態を復元（iOS復帰対策）
-    restoreCameraState();
-    if (!state.pendingPhotoForPin) return;
-    // IndexedDBから最新データを再読み込み
-    await load();
-    const floor = getFloor(state.currentFloorId);
-    const pin = floor && floor.pins.find(p => p.id === state.pendingPhotoForPin);
-    if (pin) {
-      _editingPin = pin;
-      // ピンモーダルのタイトルも更新
-      const titleEl = document.getElementById('pin-modal-title');
-      if (titleEl) titleEl.textContent = '📍 ピン #' + pin.num;
-      const memoEl = document.getElementById('pin-memo');
-      if (memoEl) memoEl.value = pin.memo || '';
-      renderPinPhotos(pin);
-      renderPinColorPicker(pin);
-      updateStatusChips(pin.status);
-      const zipBtn = document.getElementById('btn-pin-zip');
-      if (zipBtn) zipBtn.style.display = pin.photos.length > 0 ? 'block' : 'none';
-      if (!document.getElementById('pin-modal').classList.contains('open')) {
-        openModal('pin-modal');
-      }
-    }
+    // localStorageに一時写真があれば処理（リロードしない場合）
+    setTimeout(() => processTempPhoto(), 300);
   }
 });
 
