@@ -564,7 +564,7 @@
 </div>
 
 <!-- Hidden file input for camera -->
-<input type="file" id="camera-input" accept="image/*" style="display:none" onchange="handleCameraCapture(this)">
+<input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none" onchange="handleCameraCapture(this)">
 <!-- Hidden file input for floor plan -->
 <input type="file" id="floor-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleFloorFile(this)">
 
@@ -1470,23 +1470,51 @@ async function savePhotoToPin(compressed, pinId, floorId) {
 function handleCameraCapture(input) {
   const file = input.files[0];
   if (!file) return;
-  // まずlocalStorageから状態を復元
   restoreCameraState();
 
-  const processCanvas = (c) => {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      // 写真データをlocalStorageに一時保存（iOSリロード対策）
+      const tempKey = '_temp_photo_' + Date.now();
+      localStorage.setItem(tempKey, e.target.result);
+      localStorage.setItem('_temp_photo_key', tempKey);
+      // 即座に処理
+      processTempPhoto();
+    } catch(err) {
+      // localStorageが満杯の場合は直接処理
+      processImageData(e.target.result);
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function processTempPhoto() {
+  const tempKey = localStorage.getItem('_temp_photo_key');
+  if (!tempKey) return;
+  const dataUrl = localStorage.getItem(tempKey);
+  if (!dataUrl) return;
+  // 使用済みの一時データを削除
+  localStorage.removeItem(tempKey);
+  localStorage.removeItem('_temp_photo_key');
+  processImageData(dataUrl);
+}
+
+function processImageData(dataUrl) {
+  restoreCameraState();
+  const img = new Image();
+  img.onload = function() {
     const aspect = state.pendingAspect || '4:3';
-    const sw = c.width, sh = c.height;
+    const sw = img.naturalWidth, sh = img.naturalHeight;
     let sx = 0, sy = 0, cw = sw, ch = sh;
     const ratioMap = { '4:3': 4/3, '16:9': 16/9 };
     const target = ratioMap[aspect];
     if (target) {
       const srcRatio = sw / sh;
       if (srcRatio > target) {
-        cw = Math.round(sh * target);
-        sx = Math.round((sw - cw) / 2);
+        cw = Math.round(sh * target); sx = Math.round((sw - cw) / 2);
       } else {
-        ch = Math.round(sw / target);
-        sy = Math.round((sh - ch) / 2);
+        ch = Math.round(sw / target); sy = Math.round((sh - ch) / 2);
       }
     }
     const maxSize = 1280;
@@ -1497,39 +1525,11 @@ function handleCameraCapture(input) {
     }
     const out = document.createElement('canvas');
     out.width = dw; out.height = dh;
-    out.getContext('2d').drawImage(c, sx, sy, cw, ch, 0, 0, dw, dh);
+    out.getContext('2d').drawImage(img, sx, sy, cw, ch, 0, 0, dw, dh);
     const compressed = out.toDataURL('image/jpeg', 0.65);
-
-    // IndexedDBから最新データを取得して保存（iOSメモリ解放対策）
     savePhotoToPin(compressed, state.pendingPhotoForPin, state.currentFloorId);
   };
-
-  if (typeof createImageBitmap !== 'undefined') {
-    createImageBitmap(file).then(bitmap => {
-      const c = document.createElement('canvas');
-      c.width = bitmap.width; c.height = bitmap.height;
-      c.getContext('2d').drawImage(bitmap, 0, 0);
-      bitmap.close();
-      processCanvas(c);
-    }).catch(() => fallbackCapture(file, processCanvas));
-  } else {
-    fallbackCapture(file, processCanvas);
-  }
-}
-
-function fallbackCapture(file, cb) {
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const img = new Image();
-    img.onload = function() {
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      cb(c);
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
+  img.src = dataUrl;
 }
 
 function savePinDetail() {
@@ -1942,6 +1942,13 @@ async function doZip(floors) {
   progressBar.style.width = '0%';
   closeModal('export-modal');
 }
+
+// ========== PAGE SHOW (iOSカメラ復帰対策) ==========
+// pageshow は bfcache から復帰する時も含めて確実に発火する
+window.addEventListener('pageshow', async (e) => {
+  // 一時保存された写真があれば処理
+  processTempPhoto();
+});
 
 // ========== VISIBILITY CHANGE (iOSカメラ復帰対策) ==========
 document.addEventListener('visibilitychange', async () => {
