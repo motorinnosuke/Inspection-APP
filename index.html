@@ -584,11 +584,10 @@ let state = {
 let transform = { x: 0, y: 0, scale: 1 };
 let gesture = { fingers: 0, startDist: 0, startScale: 1, startX: 0, startY: 0, startTX: 0, startTY: 0, midX: 0, midY: 0, moved: false, startTime: 0 };
 
-const DB_NAME = 'inspection_app';
-const DB_VERSION = 3;
+const DB_NAME = 'inspection_app_v2';
+const DB_VERSION = 1;
 const STORE_FLOORS = 'floors';
 const STORE_FOLDERS = 'folders';
-const STORE_PHOTOS = 'photos'; // 写真専用ストア {id, pinId, floorId, data, createdAt}
 const LS_KEY = 'inspection_app_v3';
 
 let _db = null;
@@ -605,10 +604,7 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_FOLDERS)) {
         db.createObjectStore(STORE_FOLDERS, { keyPath: 'id' });
       }
-      if (!db.objectStoreNames.contains(STORE_PHOTOS)) {
-        const ps = db.createObjectStore(STORE_PHOTOS, { keyPath: 'id' });
-        ps.createIndex('pinId', 'pinId', { unique: false });
-      }
+
     };
     req.onsuccess = e => { _db = e.target.result; resolve(_db); };
     req.onerror = e => reject(e.target.error);
@@ -706,8 +702,6 @@ async function init() {
     document.getElementById('zoom-hint').style.opacity = '0';
   }, 3000);
 
-  // カメラから復帰した場合の写真処理（init完了後に実行）
-  setTimeout(() => processTempPhoto(), 800);
 }
 
 // ========== FOLDERS ==========
@@ -1474,9 +1468,7 @@ function handleCameraCapture(input) {
   };
   reader.readAsDataURL(file);
 }
-async function processTempPhoto() {
-  // 旧バージョン互換：何もしない
-}
+
 
 function savePinDetail() {
   if (!_editingPin) return;
@@ -1889,13 +1881,7 @@ async function doZip(floors) {
   closeModal('export-modal');
 }
 
-// ========== VISIBILITY CHANGE (iOSカメラ復帰対策) ==========
-document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible') {
-    // localStorageに一時写真があれば処理（リロードしない場合）
-    setTimeout(() => processTempPhoto(), 300);
-  }
-});
+
 
 // ========== RESET ==========
 async function resetAllData() {
@@ -1905,7 +1891,7 @@ async function resetAllData() {
     db.close();
     _db = null;
     await new Promise((res, rej) => {
-      const req = indexedDB.deleteDatabase(DB_NAME);
+      const req = indexedDB.deleteDatabase(DB_NAME); indexedDB.deleteDatabase('inspection_app');
       req.onsuccess = res;
       req.onerror = rej;
     });
