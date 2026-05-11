@@ -314,6 +314,33 @@
     font-weight: 700; cursor: pointer; flex-shrink: 0;
   }
 
+  /* BURST MODE TOGGLE */
+  .burst-toggle {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface2); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px; padding: 6px 10px; font-size: 12px;
+    color: var(--text2); cursor: pointer; flex-shrink: 0;
+    transition: all 0.15s; user-select: none;
+  }
+  .burst-toggle.active {
+    background: rgba(233,69,96,0.15);
+    border-color: var(--accent); color: var(--accent);
+  }
+  .burst-toggle .burst-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    transition: background 0.15s;
+  }
+  .burst-toggle.active .burst-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .burst-banner {
+    background: rgba(233,69,96,0.15); border: 1px solid var(--accent);
+    border-radius: 8px; padding: 8px 12px; font-size: 12px;
+    color: var(--accent); margin-bottom: 12px;
+    display: none; align-items: center; gap: 8px;
+  }
+  .burst-banner.show { display: flex; }
+  .burst-banner .burst-count { font-weight: 700; }
+
   /* CROP BUTTONS */
   .crop-btn {
     flex:1; padding:8px 4px; border-radius:8px; font-size:13px; font-weight:600;
@@ -489,9 +516,18 @@
 <div class="modal-overlay" id="pin-modal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div style="display:flex; align-items:center; margin-bottom:16px; gap:10px;">
-      <div class="modal-title" id="pin-modal-title" style="margin-bottom:0; flex:1;">📍 ピン #1</div>
+    <div style="display:flex; align-items:center; margin-bottom:12px; gap:8px; flex-wrap:wrap;">
+      <div class="modal-title" id="pin-modal-title" style="margin-bottom:0; flex:1; min-width:0;">📍 ピン #1</div>
+      <div class="burst-toggle" id="burst-toggle" onclick="toggleBurstMode()">
+        <div class="burst-dot"></div>
+        <span>連写</span>
+      </div>
       <button class="btn-camera" ontouchend="openAspectModal()" onclick="openAspectModal()">📷 撮影</button>
+    </div>
+    <div class="burst-banner" id="burst-banner">
+      <span>📸</span>
+      <div style="flex:1">連写モード中 <span class="burst-count" id="burst-count">(0枚)</span></div>
+      <button onclick="stopBurstMode()" style="background:transparent; border:1px solid var(--accent); color:var(--accent); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer;">停止</button>
     </div>
     <div class="status-row">
       <div class="status-chip ok" id="chip-ok" onclick="setPinStatus('ok')">✅ OK</div>
@@ -507,6 +543,7 @@
     <textarea class="memo" id="pin-memo" placeholder="メモを入力..." rows="3"></textarea>
     <div style="font-size:12px; color:var(--text2); margin-top:6px" id="pin-date"></div>
     <button class="btn-primary" onclick="savePinDetail()">保存</button>
+    <button class="btn-zip" id="btn-pin-save-photos" onclick="savePinPhotosToLibrary()">📱 写真をカメラロールに保存</button>
     <button class="btn-zip" id="btn-pin-zip" onclick="exportPinZip()">🗂️ この写真をZIPでダウンロード</button>
     <div id="pin-zip-progress" style="display:none; margin-top:8px">
       <div style="font-size:12px; color:var(--text2); margin-bottom:4px" id="pin-zip-text">作成中...</div>
@@ -771,6 +808,7 @@ async function init() {
   setTimeout(() => {
     document.getElementById('zoom-hint').style.opacity = '0';
   }, 3000);
+  loadBurstPref();
 
 }
 
@@ -1372,9 +1410,15 @@ function openPinDetail(pinId) {
 
   const zipBtn = document.getElementById('btn-pin-zip');
   if (zipBtn) zipBtn.style.display = _editingPin.photos.length > 0 ? 'block' : 'none';
+  const saveBtn = document.getElementById('btn-pin-save-photos');
+  if (saveBtn) saveBtn.style.display = _editingPin.photos.length > 0 ? 'block' : 'none';
 
   openModal('pin-modal');
   document.getElementById('float-camera-btn').style.display = 'flex';
+
+  // 新規のピンを開くたびに連写カウントをリセット (モードのON/OFFは維持)
+  burstState.count = 0;
+  updateBurstUI();
 }
 
 function renderPinColorPicker(pin) {
@@ -1427,6 +1471,50 @@ function renderPinPhotos(pin) {
     thumb.querySelector('img').onclick = () => openPhotoViewer(photo);
     container.appendChild(thumb);
   });
+}
+
+// ========== BURST MODE ==========
+let burstState = {
+  enabled: false,
+  count: 0,
+};
+
+function loadBurstPref() {
+  try {
+    burstState.enabled = localStorage.getItem('_burst_mode') === '1';
+  } catch(e) {}
+  updateBurstUI();
+}
+
+function toggleBurstMode() {
+  burstState.enabled = !burstState.enabled;
+  try { localStorage.setItem('_burst_mode', burstState.enabled ? '1' : '0'); } catch(e) {}
+  if (!burstState.enabled) burstState.count = 0;
+  updateBurstUI();
+}
+
+function stopBurstMode() {
+  burstState.enabled = false;
+  burstState.count = 0;
+  try { localStorage.setItem('_burst_mode', '0'); } catch(e) {}
+  updateBurstUI();
+}
+
+function updateBurstUI() {
+  const toggle = document.getElementById('burst-toggle');
+  const banner = document.getElementById('burst-banner');
+  const count = document.getElementById('burst-count');
+  if (!toggle) return;
+  toggle.classList.toggle('active', burstState.enabled);
+  // バナーは「連写ON かつ 既に1枚以上撮ってる」ときに表示
+  if (banner) {
+    if (burstState.enabled && burstState.count > 0) {
+      banner.classList.add('show');
+      if (count) count.textContent = `(${burstState.count}枚)`;
+    } else {
+      banner.classList.remove('show');
+    }
+  }
 }
 
 function createCameraInput() {
@@ -1540,9 +1628,27 @@ function handleCameraCapture(input) {
       renderPinPhotos(pin);
       document.getElementById('pin-modal-title').textContent = '📍 ピン #' + pin.num;
       document.getElementById('btn-pin-zip').style.display = 'block';
+      const saveBtn2 = document.getElementById('btn-pin-save-photos');
+      if (saveBtn2) saveBtn2.style.display = 'block';
       if (!document.getElementById('pin-modal').classList.contains('open')) {
         openModal('pin-modal');
         document.getElementById('float-camera-btn').style.display = 'flex';
+      }
+
+      // 連写モード: 次のカメラを自動起動
+      if (burstState.enabled) {
+        burstState.count++;
+        updateBurstUI();
+        // 同じ撮影セッションのユーザー操作チェーン内で再度clickする
+        // (iOS Safariはinput changeハンドラからの.click()を許容する)
+        const nextInput = createCameraInput();
+        // 同期で呼ぶことが重要: setTimeoutを噛ますとuser activationが切れる場合がある
+        try {
+          nextInput.click();
+        } catch(err) {
+          console.warn('burst chain click failed:', err);
+          stopBurstMode();
+        }
       }
     };
     img.src = e.target.result;
@@ -1767,6 +1873,9 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('open');
   if (id === 'pin-modal') {
     document.getElementById('float-camera-btn').style.display = 'none';
+    // 連写バナーを片付ける（ON/OFF設定自体は維持）
+    burstState.count = 0;
+    updateBurstUI();
   }
 }
 
@@ -2108,6 +2217,65 @@ function exportPinZip() {
   if (!_editingPin) return;
   if (_editingPin.photos.length === 0) { alert('写真がありません'); return; }
   buildPinZip(_editingPin);
+}
+
+// ========== SAVE TO PHOTO LIBRARY ==========
+function dataURLToBlob(dataUrl) {
+  const [meta, b64] = dataUrl.split(',');
+  const mime = (meta.match(/data:([^;]+)/) || [,'image/jpeg'])[1];
+  const bin = atob(b64);
+  const len = bin.length;
+  const arr = new Uint8Array(len);
+  for (let i = 0; i < len; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+async function savePinPhotosToLibrary() {
+  if (!_editingPin) return;
+  const photos = _editingPin.photos || [];
+  if (photos.length === 0) { alert('写真がありません'); return; }
+
+  const floor = getFloor(state.currentFloorId);
+  const baseName = `${floor ? floor.name : '図面'}_ピン${_editingPin.num}`;
+
+  // Convert all photos to File objects
+  const files = photos.map((dataUrl, i) => {
+    const blob = dataURLToBlob(dataUrl);
+    const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+    const filename = `${baseName}_${String(i+1).padStart(2,'0')}.${ext}`;
+    return new File([blob], filename, { type: blob.type });
+  });
+
+  // Web Share API (iOS Safariで共有シート→「画像を保存」でカメラロールへ)
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try {
+      await navigator.share({
+        files,
+        title: `ピン #${_editingPin.num} の写真`,
+      });
+      return;
+    } catch(err) {
+      // ユーザーがキャンセルした場合はAbortError - 黙ってreturn
+      if (err && err.name === 'AbortError') return;
+      console.warn('navigator.share failed:', err);
+      // フォールバックへ
+    }
+  }
+
+  // フォールバック: 1枚だけならダウンロード、複数なら案内
+  if (files.length === 1) {
+    const url = URL.createObjectURL(files[0]);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = files[0].name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    alert('この環境ではカメラロールへの直接保存に対応していません。\nダウンロードフォルダに保存しました。');
+  } else {
+    alert('この環境ではカメラロールへの一括保存に対応していません。\nZIPダウンロードをご利用ください。');
+  }
 }
 
 function buildPinZip(pin) {
