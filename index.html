@@ -1825,7 +1825,8 @@ function bindLongPressForReorder(thumb, index) {
   let pressTimer = null;
   let startX = 0, startY = 0;
   let pid = null;
-  let active = false; // 長押し進行中かどうか
+  let active = false; // 長押し未成立(タイマー進行中)
+  let justLongPressed = false; // 長押し成立直後フラグ
 
   thumb.addEventListener('pointerdown', (e) => {
     // 既存の操作と干渉しない
@@ -1835,11 +1836,13 @@ function bindLongPressForReorder(thumb, index) {
     startY = e.clientY;
     pid = e.pointerId;
     active = true;
+    justLongPressed = false;
     clearTimeout(pressTimer);
     pressTimer = setTimeout(() => {
       if (!active) return;
       setReorderActive(index);
       active = false;
+      justLongPressed = true;
     }, 500);
   });
 
@@ -1863,6 +1866,15 @@ function bindLongPressForReorder(thumb, index) {
   };
   thumb.addEventListener('pointerup', endHandler);
   thumb.addEventListener('pointercancel', endHandler);
+
+  // 長押し成立直後のclickイベントを抑制 (写真タップで閉じる動作を防ぐ)
+  thumb.addEventListener('click', (e) => {
+    if (justLongPressed) {
+      justLongPressed = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
 }
 
 function moveThumb(index, direction) {
@@ -1881,6 +1893,15 @@ function moveThumb(index, direction) {
   if (newIndex >= photos.length) newIndex = photos.length - 1;
   if (newIndex === index) return;
 
+  // 並び替え前のスクロール位置を記録
+  const scroller = getPinModalScrollEl();
+  const scrollBefore = scroller ? scroller.scrollTop : 0;
+
+  // アクティブなサムネの並び替え前の画面上位置を記録
+  const container = document.getElementById('pin-photos');
+  const activeThumb = container ? container.querySelector(`.photo-thumb[data-index="${index}"]`) : null;
+  const thumbTopBefore = activeThumb ? activeThumb.getBoundingClientRect().top : null;
+
   const [photo] = photos.splice(index, 1);
   photos.splice(newIndex, 0, photo);
   if (dates.length > 0) {
@@ -1893,18 +1914,18 @@ function moveThumb(index, direction) {
   activeReorderIndex = newIndex;
   renderPinPhotos(_editingPin);
 
-  // 移動後の写真にスクロール (中央付近に来るように)
+  // 並び替え後、アクティブサムネが移動前と同じ画面位置にいるようにスクロール調整
+  // (= 視点を固定して、写真の方が画面内を動いて見える挙動)
   requestAnimationFrame(() => {
-    const container = document.getElementById('pin-photos');
-    const scroller = getPinModalScrollEl();
-    if (!container || !scroller) return;
-    const thumbs = container.querySelectorAll('.photo-thumb');
-    const target = thumbs[newIndex];
-    if (!target) return;
-    const tr = target.getBoundingClientRect();
-    const sr = scroller.getBoundingClientRect();
-    const delta = tr.top - sr.top - (sr.height / 2 - tr.height / 2);
-    scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'smooth' });
+    const newScroller = getPinModalScrollEl();
+    const newContainer = document.getElementById('pin-photos');
+    if (!newScroller || !newContainer || thumbTopBefore === null) return;
+    const newActive = newContainer.querySelector(`.photo-thumb[data-index="${newIndex}"]`);
+    if (!newActive) return;
+    const newTop = newActive.getBoundingClientRect().top;
+    const diff = newTop - thumbTopBefore;
+    // 並び替え前の画面位置に戻す
+    newScroller.scrollTo({ top: newScroller.scrollTop + diff, behavior: 'auto' });
   });
 }
 
