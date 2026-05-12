@@ -140,26 +140,27 @@
     font-size: 10px; font-weight: 700; color: #fff; pointer-events: none;
   }
 
-  /* ステータスバッジ (ピンの右上に表示) */
+  /* ステータスバッジ (ピン数字の下に表示) */
   .pin-badge {
     position: absolute;
-    top: -4px;
-    right: -12px;
-    min-width: 18px; height: 18px;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 16px; height: 16px;
     padding: 0 3px;
     border-radius: 50%;
     background: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 900;
+    font-size: 12px; font-weight: 900;
     line-height: 1;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.5);
     pointer-events: none;
     z-index: 2;
-    border: 1.5px solid rgba(0,0,0,0.2);
+    border: 1.5px solid rgba(0,0,0,0.3);
   }
-  .pin-badge.badge-ok { color: var(--ok); }
-  .pin-badge.badge-ng { color: var(--ng); }
-  .pin-badge.badge-check { color: var(--check); background: #fff8e6; }
+  .pin-badge.badge-ok { color: var(--ok); background: #fff; }
+  .pin-badge.badge-ng { color: var(--ng); background: #fff; }
+  .pin-badge.badge-check { color: var(--check); background: #fff; }
 
   /* TOOLBAR */
   #toolbar {
