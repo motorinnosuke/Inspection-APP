@@ -197,6 +197,11 @@
     transition: transform 0.2s ease, opacity 0.2s ease;
     -webkit-touch-callout: none;
   }
+  .photo-thumb.long-press-active {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 2px rgba(233,69,96,0.5);
+    touch-action: none;
+  }
   .photo-thumb.dragging {
     opacity: 0.4;
     transform: scale(0.96);
@@ -205,20 +210,34 @@
   #pin-photos.reordering { touch-action: none; }
   #pin-photos.reordering * { touch-action: none; }
 
-  /* ドロップ位置インジケータ */
+  /* ドロップ位置インジケータ (fixed配置でDOM順への影響をゼロに) */
   .drop-indicator {
-    height: 4px;
+    position: fixed;
+    height: 6px;
     background: var(--accent);
-    border-radius: 2px;
-    margin: -2px 0;
-    box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(233,69,96,0.6);
+    border-radius: 3px;
+    box-shadow: 0 0 12px var(--accent), 0 0 24px rgba(233,69,96,0.8);
     animation: dropPulse 0.6s ease-in-out infinite alternate;
     pointer-events: none;
+    z-index: 199;
   }
   @keyframes dropPulse {
-    from { opacity: 0.7; transform: scaleX(0.95); }
-    to { opacity: 1; transform: scaleX(1); }
+    from { opacity: 0.8; }
+    to { opacity: 1; }
   }
+
+  /* デバッグ表示 */
+  #reorder-debug {
+    position: fixed; top: 70px; left: 8px;
+    background: rgba(0,0,0,0.85); color: #0f0;
+    font-family: ui-monospace, monospace; font-size: 10px;
+    padding: 6px 8px; border-radius: 6px;
+    z-index: 999; pointer-events: none;
+    max-width: 60vw; word-break: break-all;
+    display: none;
+    white-space: pre-wrap;
+  }
+  #reorder-debug.show { display: block; }
   .photo-thumb.drag-ghost {
     position: fixed; left: 0; top: 0;
     z-index: 200;
@@ -240,10 +259,6 @@
     pointer-events: none; opacity: 0;
     transition: opacity 0.2s;
     z-index: 2;
-  }
-  .photo-thumb.long-press-active {
-    transform: scale(0.98);
-    box-shadow: 0 0 0 2px rgba(233,69,96,0.5);
   }
   .photo-thumb.long-press-active .drag-handle-hint { opacity: 1; }
   .photo-thumb img { width: 100%; height: auto; display: block; max-height: 400px; object-fit: contain; background: #000; }
@@ -818,6 +833,9 @@
   <button class="pin-jump-btn" onclick="jumpPinModal('top')" title="最上部へ">⤒</button>
   <button class="pin-jump-btn" onclick="jumpPinModal('bottom')" title="最下部へ">⤓</button>
 </div>
+
+<!-- Reorder Debug Panel -->
+<div id="reorder-debug"></div>
 
 <!-- Photo Select Mode Action Bar -->
 <div id="select-action-bar">
@@ -1786,7 +1804,7 @@ const REORDER = {
   startY: 0,
   pointerId: null,
   draggingIndex: -1,
-  dropTargetIndex: -1, // ドロップ予定位置 (0..N) / -1=未確定
+  dropTargetIndex: -1,
   ghost: null,
   indicator: null,
   ghostOffsetX: 0,
@@ -1794,7 +1812,58 @@ const REORDER = {
   origThumb: null,
   PRESS_MS: 500,
   MOVE_TOLERANCE: 10,
+  debugEnabled: false,
 };
+
+function reorderDebug(msg) {
+  if (!REORDER.debugEnabled) return;
+  const el = document.getElementById('reorder-debug');
+  if (!el) return;
+  const ts = new Date().toISOString().slice(11, 23);
+  el.textContent = `[${ts}]\n${msg}`;
+}
+
+function toggleReorderDebug() {
+  REORDER.debugEnabled = !REORDER.debugEnabled;
+  const el = document.getElementById('reorder-debug');
+  if (el) el.classList.toggle('show', REORDER.debugEnabled);
+  if (REORDER.debugEnabled) {
+    reorderDebug('Debug ON\nLong-press a thumbnail to test');
+  }
+}
+
+// ヘッダータイトルを3回素早くタップでデバッグON/OFF
+(function setupDebugToggle() {
+  let taps = 0, lastTap = 0;
+  document.addEventListener('DOMContentLoaded', () => {
+    const h1 = document.querySelector('header h1');
+    if (!h1) return;
+    h1.addEventListener('click', () => {
+      const now = Date.now();
+      if (now - lastTap < 500) taps++; else taps = 1;
+      lastTap = now;
+      if (taps >= 3) {
+        taps = 0;
+        toggleReorderDebug();
+      }
+    });
+  });
+  // DOMContentLoaded後にも対応
+  setTimeout(() => {
+    const h1 = document.querySelector('header h1');
+    if (!h1 || h1.dataset.debugBound) return;
+    h1.dataset.debugBound = '1';
+    h1.addEventListener('click', () => {
+      const now = Date.now();
+      if (now - lastTap < 500) taps++; else taps = 1;
+      lastTap = now;
+      if (taps >= 3) {
+        taps = 0;
+        toggleReorderDebug();
+      }
+    });
+  }, 1000);
+})();
 
 function isReorderEligible() {
   // 選択モード中は長押し→並び替え無効
@@ -1808,11 +1877,8 @@ function bindReorderHandlers(thumb, index) {
 
 function onReorderPointerDown(e, thumb, index) {
   if (!isReorderEligible()) return;
-  // 削除ボタン・保存ボタン・チェックボックスの上では発動しない
   const target = e.target;
   if (target.closest('.del-photo, .save-photo, .photo-check')) return;
-  // タッチ/ペンのみ対象（マウスはオプション扱い）
-  // ここではpointerType問わず受け付ける
 
   REORDER.startX = e.clientX;
   REORDER.startY = e.clientY;
@@ -1820,8 +1886,10 @@ function onReorderPointerDown(e, thumb, index) {
   clearTimeout(REORDER.pressTimer);
 
   thumb.classList.add('long-press-active');
+  reorderDebug(`down idx=${index} ptr=${e.pointerId} type=${e.pointerType}`);
 
   REORDER.pressTimer = setTimeout(() => {
+    reorderDebug(`timer fired idx=${index}`);
     startReorderDrag(thumb, index, e.clientX, e.clientY);
   }, REORDER.PRESS_MS);
 
@@ -1839,10 +1907,11 @@ function onReorderPointerDown(e, thumb, index) {
 
   // ポインタが大きく動いたら長押しキャンセル（スクロール意図）
   const moveHandler = (mv) => {
-    if (REORDER.draggingIndex !== -1) return; // すでにドラッグ中
+    if (REORDER.draggingIndex !== -1) return;
     const dx = mv.clientX - REORDER.startX;
     const dy = mv.clientY - REORDER.startY;
     if (Math.hypot(dx, dy) > REORDER.MOVE_TOLERANCE) {
+      reorderDebug(`cancel: move ${Math.hypot(dx,dy).toFixed(1)}px before long-press`);
       clearTimeout(REORDER.pressTimer);
       thumb.classList.remove('long-press-active');
       window.removeEventListener('pointermove', moveHandler);
@@ -1862,16 +1931,33 @@ function onReorderPointerDown(e, thumb, index) {
 function startReorderDrag(thumb, index, x, y) {
   REORDER.draggingIndex = index;
   REORDER.origThumb = thumb;
-  REORDER.dropTargetIndex = -1; // ドロップ予定の挿入位置 (0..N)
+  REORDER.dropTargetIndex = -1;
   thumb.classList.remove('long-press-active');
   thumb.classList.add('dragging');
   const container = document.getElementById('pin-photos');
-  if (container) container.classList.add('reordering');
+  if (!container) return;
+  container.classList.add('reordering');
 
-  // バイブレーション（対応ブラウザのみ）
+  // pointerをこの要素にキャプチャ
+  try { thumb.setPointerCapture(REORDER.pointerId); } catch(_) {}
+
+  reorderDebug(`drag START idx=${index} x=${x.toFixed(0)} y=${y.toFixed(0)}`);
+
+  // バイブレーション
   try { if (navigator.vibrate) navigator.vibrate(15); } catch(_) {}
 
-  // ゴースト要素を作成: 元サムネのクローン
+  // 各サムネの矩形を事前計算 (ドラッグ中は固定)
+  // ※ ドラッグ中はDOM順を変えない方針なので、これらの値は安定
+  REORDER.scroller = getPinModalScrollEl();
+  REORDER.initialScrollTop = REORDER.scroller ? REORDER.scroller.scrollTop : 0;
+  const thumbs = [...container.querySelectorAll('.photo-thumb')];
+  REORDER.thumbRects = thumbs.map(t => {
+    const r = t.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, height: r.height, mid: r.top + r.height / 2 };
+  });
+  REORDER.containerRect = container.getBoundingClientRect();
+
+  // ゴースト要素
   const rect = thumb.getBoundingClientRect();
   const ghost = thumb.cloneNode(true);
   ghost.classList.add('drag-ghost');
@@ -1883,14 +1969,16 @@ function startReorderDrag(thumb, index, x, y) {
   REORDER.ghostOffsetY = y - rect.top;
   moveGhost(x, y);
 
-  // ドロップ位置インジケータを作成（DOMに1つだけ、移動時に位置を変える）
+  // ドロップ位置インジケータ (container内ではなくbody直下のfixed配置にして、DOM順への影響をゼロに)
   const indicator = document.createElement('div');
   indicator.className = 'drop-indicator';
+  document.body.appendChild(indicator);
   REORDER.indicator = indicator;
-  // 初期はどこにも挿入しない（移動時に決定）
+  // 初期は非表示
+  indicator.style.display = 'none';
 
-  // pointerイベントを全画面で受け取る
-  window.addEventListener('pointermove', onReorderPointerMove);
+  // passive: false を明示してpreventDefaultを有効化
+  window.addEventListener('pointermove', onReorderPointerMove, { passive: false });
   window.addEventListener('pointerup', onReorderPointerUp);
   window.addEventListener('pointercancel', onReorderPointerUp);
 }
@@ -1901,6 +1989,14 @@ function moveGhost(x, y) {
   REORDER.ghost.style.top = (y - REORDER.ghostOffsetY) + 'px';
 }
 
+// 現在のスクロールズレを考慮してYに変換
+function adjustedClientY(clientY) {
+  // ドラッグ中にスクロールが起きた場合、初期rectとの差分を補正
+  const cur = REORDER.scroller ? REORDER.scroller.scrollTop : 0;
+  const delta = cur - REORDER.initialScrollTop;
+  return clientY + delta;
+}
+
 function onReorderPointerMove(e) {
   if (REORDER.draggingIndex === -1) return;
   if (REORDER.pointerId !== e.pointerId) return;
@@ -1909,44 +2005,51 @@ function onReorderPointerMove(e) {
 
   const container = document.getElementById('pin-photos');
   if (!container) return;
+  const rects = REORDER.thumbRects;
+  if (!rects || rects.length === 0) return;
 
-  // 全サムネ（ゴースト除く、ドラッグ中の元サムネは含む）
-  const thumbs = [...container.querySelectorAll('.photo-thumb:not(.drag-ghost)')];
-  if (thumbs.length === 0) return;
+  const y = adjustedClientY(e.clientY);
 
-  // 指のY座標から「挿入位置 = 0..thumbs.length」を決定
-  // 各サムネを「上半分=その前に挿入, 下半分=その後に挿入」で判定
   let insertAt = -1;
-  for (let i = 0; i < thumbs.length; i++) {
-    const r = thumbs[i].getBoundingClientRect();
-    const mid = r.top + r.height / 2;
-    if (e.clientY < mid) {
+  for (let i = 0; i < rects.length; i++) {
+    if (y < rects[i].mid) {
       insertAt = i;
       break;
     }
   }
-  if (insertAt === -1) insertAt = thumbs.length;
+  if (insertAt === -1) insertAt = rects.length;
 
-  // 元の位置の直前/直後は「同じ位置」なのでインジケータを隠す
   const originIdx = REORDER.draggingIndex;
   const isSamePosition = (insertAt === originIdx || insertAt === originIdx + 1);
 
+  reorderDebug(`move y=${y.toFixed(0)} insertAt=${insertAt} origin=${originIdx} same=${isSamePosition} rects=${rects.length}`);
+
   if (isSamePosition) {
-    if (REORDER.indicator.parentNode) {
-      REORDER.indicator.parentNode.removeChild(REORDER.indicator);
-    }
+    REORDER.indicator.style.display = 'none';
     REORDER.dropTargetIndex = -1;
     return;
   }
 
   REORDER.dropTargetIndex = insertAt;
-  // インジケータを正しい位置に配置
-  const refEl = thumbs[insertAt] || null;
-  if (refEl) {
-    container.insertBefore(REORDER.indicator, refEl);
+
+  let lineY;
+  const containerRect = container.getBoundingClientRect();
+
+  if (insertAt === 0) {
+    lineY = rects[0].top - 4;
+  } else if (insertAt >= rects.length) {
+    lineY = rects[rects.length - 1].bottom + 2;
   } else {
-    container.appendChild(REORDER.indicator);
+    lineY = (rects[insertAt - 1].bottom + rects[insertAt].top) / 2 - 3;
   }
+  const cur = REORDER.scroller ? REORDER.scroller.scrollTop : 0;
+  const delta = cur - REORDER.initialScrollTop;
+  lineY -= delta;
+
+  REORDER.indicator.style.display = 'block';
+  REORDER.indicator.style.left = containerRect.left + 'px';
+  REORDER.indicator.style.width = containerRect.width + 'px';
+  REORDER.indicator.style.top = lineY + 'px';
 }
 
 function onReorderPointerUp(e) {
@@ -1956,6 +2059,10 @@ function onReorderPointerUp(e) {
   window.removeEventListener('pointermove', onReorderPointerMove);
   window.removeEventListener('pointerup', onReorderPointerUp);
   window.removeEventListener('pointercancel', onReorderPointerUp);
+
+  const originIdx = REORDER.draggingIndex;
+  const targetIdx = REORDER.dropTargetIndex;
+  reorderDebug(`drop origin=${originIdx} target=${targetIdx}`);
 
   // 直後のclickイベントを抑制
   const suppressClick = (ev) => {
@@ -1967,9 +2074,6 @@ function onReorderPointerUp(e) {
   setTimeout(() => {
     window.removeEventListener('click', suppressClick, true);
   }, 300);
-
-  const originIdx = REORDER.draggingIndex;
-  const targetIdx = REORDER.dropTargetIndex;
 
   // 並び替えを配列に反映 (targetIdx が有効なときのみ)
   if (_editingPin && targetIdx !== -1 && targetIdx !== originIdx && targetIdx !== originIdx + 1) {
