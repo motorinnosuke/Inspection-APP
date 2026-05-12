@@ -88,7 +88,11 @@
   #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
   /* PLAN VIEW */
-  #plan-view { flex: 1; position: relative; overflow: hidden; touch-action: none; background: #111; }
+  #plan-view { 
+    flex: 1; position: relative; overflow: hidden; touch-action: none; background: #111;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
   #plan-canvas-wrap {
     position: absolute; transform-origin: 0 0;
     cursor: crosshair;
@@ -115,6 +119,15 @@
     filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
     z-index: 10; transition: transform 0.15s;
     touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pin * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
   .pin:active { transform: translate(-50%, -100%) scale(1.2); }
   .pin svg { width: 100%; height: auto; }
@@ -126,6 +139,27 @@
     position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
     font-size: 10px; font-weight: 700; color: #fff; pointer-events: none;
   }
+
+  /* ステータスバッジ (ピンの右上に表示) */
+  .pin-badge {
+    position: absolute;
+    top: -4px;
+    right: -12px;
+    min-width: 18px; height: 18px;
+    padding: 0 3px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900;
+    line-height: 1;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    pointer-events: none;
+    z-index: 2;
+    border: 1.5px solid rgba(0,0,0,0.2);
+  }
+  .pin-badge.badge-ok { color: var(--ok); }
+  .pin-badge.badge-ng { color: var(--ng); }
+  .pin-badge.badge-check { color: var(--check); background: #fff8e6; }
 
   /* TOOLBAR */
   #toolbar {
@@ -692,10 +726,10 @@
   </div>
 
   <div id="toolbar">
-    <button class="tool-btn active" id="btn-pin-mode" onclick="setMode('pin')">
+    <button class="tool-btn" id="btn-pin-mode" onclick="setMode('pin')">
       <span class="icon">📍</span><span>ピン追加</span>
     </button>
-    <button class="tool-btn" id="btn-move-mode" onclick="setMode('move')">
+    <button class="tool-btn active" id="btn-move-mode" onclick="setMode('move')">
       <span class="icon">✋</span><span>移動</span>
     </button>
     <button class="tool-btn" id="btn-list-mode" onclick="setMode('list')">
@@ -826,7 +860,7 @@
 <button id="float-camera-btn" ontouchend="openAspectModal()" onclick="openAspectModal()">📷</button>
 
 <!-- Floating Home Button (back to floor view) -->
-<button id="float-home-btn" onclick="closeModal('pin-modal')" title="図面に戻る">🏠</button>
+<button id="float-home-btn" onclick="goBackToFloor()" title="図面に戻る">🏠</button>
 
 <!-- Pin Modal Scroll Jump Buttons -->
 <div id="pin-jump-buttons">
@@ -975,7 +1009,7 @@ let state = {
   floors: [],  // [{id, name, folderId, order, imageData, pins:[]}]
   currentFolderId: null,
   currentFloorId: null,
-  mode: 'pin',
+  mode: 'move',
   editingPinId: null,
   pendingPhotoForPin: null,
   pendingAspect: '4:3',
@@ -1611,12 +1645,21 @@ function renderPins() {
     el.style.left = (pin.x * img.naturalWidth) + 'px';
     el.style.top = (pin.y * img.naturalHeight) + 'px';
     const pinColor = pin.color || null;
+    let badge = '';
+    if (pin.status === 'ok') {
+      badge = '<div class="pin-badge badge-ok" aria-hidden="true">✓</div>';
+    } else if (pin.status === 'ng') {
+      badge = '<div class="pin-badge badge-ng" aria-hidden="true">✕</div>';
+    } else if (pin.status === 'check') {
+      badge = '<div class="pin-badge badge-check" aria-hidden="true">▲</div>';
+    }
     el.innerHTML = `
       <svg viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg">
         <path class="pin-fill" d="M16 0C9.4 0 4 5.4 4 12c0 9 12 28 12 28S28 21 28 12C28 5.4 22.6 0 16 0z" ${pinColor ? `style="fill:${pinColor}"` : ''}/>
         <circle cx="16" cy="12" r="6" fill="rgba(0,0,0,0.25)"/>
       </svg>
       <div class="pin-num">${pin.num}</div>
+      ${badge}
     `;
     el.addEventListener('click', e => { e.stopPropagation(); });
     el.addEventListener('touchstart', e => {
@@ -1755,8 +1798,16 @@ function updateStatusChips(status) {
 
 function setPinStatus(status) {
   if (!_editingPin) return;
-  _editingPin.status = status;
-  updateStatusChips(status);
+  // 同じステータスを再度タップしたら解除 (未設定に戻す)
+  if (_editingPin.status === status) {
+    _editingPin.status = 'none';
+    updateStatusChips('none');
+  } else {
+    _editingPin.status = status;
+    updateStatusChips(status);
+  }
+  // 図面上のピンも即座に更新 (バッジの表示反映)
+  renderPins();
 }
 
 function renderPinPhotos(pin) {
@@ -2483,6 +2534,11 @@ function updateSummary() {
 }
 
 // ========== MODE ==========
+function goBackToFloor() {
+  closeModal('pin-modal');
+  setMode('move');
+}
+
 function setMode(mode) {
   state.mode = mode;
   ['pin','move','list'].forEach(m => {
