@@ -494,6 +494,27 @@
   }
   #float-camera-btn:active { transform: scale(0.9); }
 
+  /* 図面に戻る家ボタン (ピン詳細モーダル中、カメラボタンの下に表示) */
+  #float-home-btn {
+    position: fixed;
+    bottom: calc(22px + var(--safe-bottom));
+    right: 20px;
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: rgba(40,40,55,0.92);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    font-size: 24px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    cursor: pointer;
+    z-index: 150;
+    display: none;
+    align-items: center; justify-content: center;
+    transition: transform 0.15s, background 0.15s;
+    backdrop-filter: blur(8px);
+  }
+  #float-home-btn:active { transform: scale(0.9); background: var(--accent); }
+
   .btn-camera {
     background: var(--accent); color: #fff; border: none;
     border-radius: 10px; padding: 8px 14px; font-size: 14px;
@@ -803,6 +824,9 @@
 
 <!-- Floating Camera Button -->
 <button id="float-camera-btn" ontouchend="openAspectModal()" onclick="openAspectModal()">📷</button>
+
+<!-- Floating Home Button (back to floor view) -->
+<button id="float-home-btn" onclick="closeModal('pin-modal')" title="図面に戻る">🏠</button>
 
 <!-- Pin Modal Scroll Jump Buttons -->
 <div id="pin-jump-buttons">
@@ -1684,6 +1708,7 @@ function openPinDetail(pinId) {
 
   openModal('pin-modal');
   document.getElementById('float-camera-btn').style.display = 'flex';
+  document.getElementById('float-home-btn').style.display = 'flex';
 
   // 新規のピンを開くたびに連写カウントをリセット (モードのON/OFFは維持)
   burstState.count = 0;
@@ -2364,6 +2389,7 @@ function handleCameraCapture(input) {
       if (!document.getElementById('pin-modal').classList.contains('open')) {
         openModal('pin-modal');
         document.getElementById('float-camera-btn').style.display = 'flex';
+        document.getElementById('float-home-btn').style.display = 'flex';
       }
 
       // 連写モード: 次のカメラを自動起動
@@ -2608,6 +2634,7 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('open');
   if (id === 'pin-modal') {
     document.getElementById('float-camera-btn').style.display = 'none';
+    document.getElementById('float-home-btn').style.display = 'none';
     // 連写バナーを片付ける（ON/OFF設定自体は維持）
     burstState.count = 0;
     updateBurstUI();
