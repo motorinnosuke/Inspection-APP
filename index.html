@@ -1893,15 +1893,7 @@ function moveThumb(index, direction) {
   if (newIndex >= photos.length) newIndex = photos.length - 1;
   if (newIndex === index) return;
 
-  // 並び替え前のスクロール位置を記録
-  const scroller = getPinModalScrollEl();
-  const scrollBefore = scroller ? scroller.scrollTop : 0;
-
-  // アクティブなサムネの並び替え前の画面上位置を記録
-  const container = document.getElementById('pin-photos');
-  const activeThumb = container ? container.querySelector(`.photo-thumb[data-index="${index}"]`) : null;
-  const thumbTopBefore = activeThumb ? activeThumb.getBoundingClientRect().top : null;
-
+  // 配列の並び替え
   const [photo] = photos.splice(index, 1);
   photos.splice(newIndex, 0, photo);
   if (dates.length > 0) {
@@ -1910,22 +1902,79 @@ function moveThumb(index, direction) {
   }
   save();
 
-  // アクティブインデックスも一緒に移動して、矢印を維持
-  activeReorderIndex = newIndex;
-  renderPinPhotos(_editingPin);
+  // DOM を直接更新 (再描画しないのでスクロール位置は完全に維持される)
+  const container = document.getElementById('pin-photos');
+  if (!container) return;
+  const allThumbs = [...container.querySelectorAll('.photo-thumb')];
+  const moving = allThumbs[index];
+  if (!moving) return;
 
-  // 並び替え後、アクティブサムネが移動前と同じ画面位置にいるようにスクロール調整
-  // (= 視点を固定して、写真の方が画面内を動いて見える挙動)
-  requestAnimationFrame(() => {
-    const newScroller = getPinModalScrollEl();
-    const newContainer = document.getElementById('pin-photos');
-    if (!newScroller || !newContainer || thumbTopBefore === null) return;
-    const newActive = newContainer.querySelector(`.photo-thumb[data-index="${newIndex}"]`);
-    if (!newActive) return;
-    const newTop = newActive.getBoundingClientRect().top;
-    const diff = newTop - thumbTopBefore;
-    // 並び替え前の画面位置に戻す
-    newScroller.scrollTo({ top: newScroller.scrollTop + diff, behavior: 'auto' });
+  // 移動先位置にinsertBefore
+  if (newIndex >= allThumbs.length - 1) {
+    // 末尾へ
+    container.appendChild(moving);
+  } else {
+    // newIndex の位置に挿入
+    // newIndex > index の場合: 自分を抜いた後の newIndex 番目 = 元の newIndex+1 番目
+    const ref = newIndex > index ? allThumbs[newIndex + 1] : allThumbs[newIndex];
+    container.insertBefore(moving, ref);
+  }
+
+  // 各サムネの dataset.index と表示内容を更新 (#番号、矢印有効/無効、show-arrows)
+  activeReorderIndex = newIndex;
+  updateThumbIndices();
+}
+
+// renderPinPhotosを全部やり直さず、各サムネのインデックス表示と矢印のdisabled状態だけ更新
+function updateThumbIndices() {
+  const container = document.getElementById('pin-photos');
+  if (!container) return;
+  const thumbs = [...container.querySelectorAll('.photo-thumb')];
+  const total = thumbs.length;
+  thumbs.forEach((thumb, i) => {
+    thumb.dataset.index = i;
+    // #番号
+    const idx = thumb.querySelector('.photo-idx');
+    if (idx) idx.textContent = `#${i + 1}`;
+    // show-arrows のクラス
+    thumb.classList.toggle('show-arrows', i === activeReorderIndex);
+    // 矢印のdisabled状態 & onclick の index
+    const buttons = thumb.querySelectorAll('.ro-btn');
+    if (buttons.length >= 4) {
+      const upDisabled = i === 0;
+      const downDisabled = i === total - 1;
+      buttons[0].disabled = upDisabled; // ⤒
+      buttons[1].disabled = upDisabled; // ↑
+      buttons[2].disabled = downDisabled; // ↓
+      buttons[3].disabled = downDisabled; // ⤓
+      // onclick も更新 (古い index で固定されているため)
+      buttons[0].onclick = (e) => { e.stopPropagation(); moveThumb(i, -Infinity); };
+      buttons[1].onclick = (e) => { e.stopPropagation(); moveThumb(i, -1); };
+      buttons[2].onclick = (e) => { e.stopPropagation(); moveThumb(i, 1); };
+      buttons[3].onclick = (e) => { e.stopPropagation(); moveThumb(i, Infinity); };
+    }
+    // 他のボタンのonclick も更新 (削除/保存/チェック)
+    const delBtn = thumb.querySelector('.del-photo');
+    if (delBtn) delBtn.onclick = (e) => { e.stopPropagation(); deletePhoto(i); };
+    const saveBtn = thumb.querySelector('.save-photo');
+    if (saveBtn) saveBtn.onclick = (e) => { e.stopPropagation(); savePhotoToLibrary(i); };
+    const checkEl = thumb.querySelector('.photo-check');
+    if (checkEl) checkEl.onclick = (e) => { e.stopPropagation(); toggleSelectPhoto(i); };
+    // img の onclick (写真ビューアを開く / 矢印アクティブ時は閉じる)
+    const img = thumb.querySelector('img');
+    if (img) {
+      img.onclick = () => {
+        if (selectState.enabled) {
+          toggleSelectPhoto(i);
+        } else {
+          if (activeReorderIndex !== -1) {
+            clearReorderActive();
+          } else {
+            openPhotoViewer(i);
+          }
+        }
+      };
+    }
   });
 }
 
