@@ -243,6 +243,30 @@
     border: 1px solid #0f0;
   }
   #reorder-debug.show { display: block; }
+
+  /* デバッグトグルボタン (常時表示) */
+  #reorder-dbg-toggle {
+    position: fixed;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: rgba(20,20,30,0.6);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    z-index: 99998;
+    opacity: 0.5;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #reorder-dbg-toggle.active {
+    background: #0f0;
+    opacity: 1;
+    color: #000;
+    border-color: #0f0;
+  }
   .photo-thumb.drag-ghost {
     position: fixed; left: 0; top: 0;
     z-index: 200;
@@ -827,7 +851,6 @@
       </div>
     </div>
     <button class="btn-danger" onclick="deletePin()">このピンを削除</button>
-    <button onclick="toggleReorderDbg()" style="margin-top:8px; width:100%; padding:6px; font-size:11px; background:transparent; border:1px dashed rgba(255,255,255,0.15); color:var(--text2); border-radius:6px; cursor:pointer;">🐛 並び替えデバッグ ON/OFF</button>
   </div>
 </div>
 
@@ -842,6 +865,9 @@
 
 <!-- Reorder Debug Panel -->
 <div id="reorder-debug"></div>
+
+<!-- Reorder Debug Toggle Button (always visible) -->
+<button id="reorder-dbg-toggle" onclick="toggleReorderDbg()">🐛</button>
 
 <!-- Photo Select Mode Action Bar -->
 <div id="select-action-bar">
@@ -1845,6 +1871,8 @@ window.__rdbgOn = showRdbg;
 window.__rdbgOff = hideRdbg;
 function toggleReorderDbg() {
   if (REORDER.debugOn) hideRdbg(); else showRdbg();
+  const btn = document.getElementById('reorder-dbg-toggle');
+  if (btn) btn.classList.toggle('active', REORDER.debugOn);
 }
 
 function bindReorderHandlers(thumb, index) {
