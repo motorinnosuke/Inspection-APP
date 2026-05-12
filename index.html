@@ -1844,8 +1844,8 @@ const REORDER = {
   thumbRects: [],
   scrollStart: 0,
   scroller: null,
-  PRESS_MS: 450,
-  MOVE_TOL: 8,
+  PRESS_MS: 600,
+  MOVE_TOL: 20,
   debugOn: false,
 };
 
@@ -1938,15 +1938,6 @@ function reorderStart(thumb, index, x, y) {
   try { thumb.setPointerCapture(REORDER.pointerId); } catch(_) {}
   try { if (navigator.vibrate) navigator.vibrate(15); } catch(_) {}
 
-  // 各サムネのrectを記録 (ドラッグ中はDOMを動かさないので安定)
-  REORDER.scroller = getPinModalScrollEl();
-  REORDER.scrollStart = REORDER.scroller ? REORDER.scroller.scrollTop : 0;
-  const thumbs = [...container.querySelectorAll('.photo-thumb')];
-  REORDER.thumbRects = thumbs.map(t => {
-    const r = t.getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom, mid: (r.top + r.bottom) / 2, left: r.left, width: r.width };
-  });
-
   // ゴースト
   const rect = thumb.getBoundingClientRect();
   const ghost = thumb.cloneNode(true);
@@ -1959,14 +1950,32 @@ function reorderStart(thumb, index, x, y) {
   REORDER.ghostDY = y - rect.top;
   moveGhostTo(x, y);
 
-  // インジケータ (常にbody直下)
+  // 元サムネを完全に非表示 (他サムネが繰り上がる)
+  thumb.style.display = 'none';
+
+  // 残りのサムネのrectを取得 (元サムネは含まない、N-1個)
+  REORDER.scroller = getPinModalScrollEl();
+  REORDER.scrollStart = REORDER.scroller ? REORDER.scroller.scrollTop : 0;
+  // 一旦force layout後にrect取得
+  void container.offsetHeight;
+  const visibleThumbs = [...container.querySelectorAll('.photo-thumb:not(.drag-ghost)')].filter(t => t.style.display !== 'none');
+  REORDER.thumbRects = visibleThumbs.map(t => {
+    const r = t.getBoundingClientRect();
+    return {
+      top: r.top, bottom: r.bottom, mid: (r.top + r.bottom) / 2,
+      left: r.left, width: r.width,
+      originalIndex: parseInt(t.dataset.index, 10),
+    };
+  });
+
+  // インジケータ
   const indicator = document.createElement('div');
   indicator.className = 'drop-indicator';
   indicator.style.display = 'none';
   document.body.appendChild(indicator);
   REORDER.indicator = indicator;
 
-  rdbg(`START idx=${index} thumbs=${REORDER.thumbRects.length}`);
+  rdbg(`START idx=${index} thumbs=${REORDER.thumbRects.length} (orig hidden)`);
 
   window.addEventListener('pointermove', reorderMove, { passive: false });
   window.addEventListener('pointerup', reorderUp);
@@ -1987,45 +1996,51 @@ function reorderMove(e) {
   moveGhostTo(e.clientX, e.clientY);
 
   const rects = REORDER.thumbRects;
-  if (rects.length === 0) return;
+  if (rects.length === 0) {
+    // 他に写真がない (1枚しかない場合)
+    return;
+  }
 
-  // スクロール量の変化を補正したY
   const scrollNow = REORDER.scroller ? REORDER.scroller.scrollTop : 0;
   const scrollDelta = scrollNow - REORDER.scrollStart;
   const y = e.clientY + scrollDelta;
 
-  // 挿入位置決定
-  let insertAt = rects.length;
+  // visible内での挿入位置 (0..rects.length)
+  let visibleAt = rects.length;
   for (let i = 0; i < rects.length; i++) {
     if (y < rects[i].mid) {
-      insertAt = i;
+      visibleAt = i;
       break;
     }
   }
 
-  const origin = REORDER.draggingIndex;
-  const sameSpot = (insertAt === origin || insertAt === origin + 1);
-
-  rdbg(`MOVE y=${y.toFixed(0)} at=${insertAt} origin=${origin} same=${sameSpot}`);
-
-  if (sameSpot) {
-    REORDER.indicator.style.display = 'none';
-    REORDER.dropAt = -1;
-    return;
+  // 元配列での挿入位置に変換
+  // visibleAt=0 → 元配列で「rects[0].originalIndex」の位置に挿入
+  // visibleAt=N → 最末尾 = 元配列のlength
+  let finalAt;
+  if (visibleAt < rects.length) {
+    finalAt = rects[visibleAt].originalIndex;
+    // ただし、draggingIndexより後ろなら、抜き取った分でずれる
+    // 例: dragging=2, visibleAt=1 (B), originalIndex=1 → そのまま挿入位置1
+    // 例: dragging=2, visibleAt=2 (D), originalIndex=3 → 「Dの前」だが配列で考えるとindex 3の前= splice挿入位置3
+    // ここではfinalAtは「挿入したい元配列上の位置」として 0..N
+  } else {
+    finalAt = _editingPin ? _editingPin.photos.length : 0;
   }
 
-  REORDER.dropAt = insertAt;
+  rdbg(`MOVE y=${y.toFixed(0)} vAt=${visibleAt} finalAt=${finalAt} origin=${REORDER.draggingIndex}`);
 
-  // インジケータ位置: rectsは初期値なので、現在のスクロール位置との差分で補正
+  REORDER.dropAt = finalAt;
+
+  // インジケータ位置
   let lineY;
-  if (insertAt === 0) {
+  if (visibleAt === 0) {
     lineY = rects[0].top - 3;
-  } else if (insertAt >= rects.length) {
+  } else if (visibleAt >= rects.length) {
     lineY = rects[rects.length - 1].bottom + 1;
   } else {
-    lineY = (rects[insertAt - 1].bottom + rects[insertAt].top) / 2 - 3;
+    lineY = (rects[visibleAt - 1].bottom + rects[visibleAt].top) / 2 - 3;
   }
-  // 表示用にスクロール差分を引く (記録時から動いた分だけ画面上では上にずれる)
   lineY -= scrollDelta;
 
   REORDER.indicator.style.display = 'block';
@@ -2047,6 +2062,9 @@ function reorderUp(e) {
   rdbg(`UP origin=${origin} target=${target}`);
 
   // 並び替え実行
+  // target は「元配列の長さN個の中で、どこに挿入するか」を表す (0..N)
+  // 「同じ位置」= target === origin || target === origin + 1
+  let moved = false;
   if (_editingPin && target !== -1 && target !== origin && target !== origin + 1) {
     const photos = _editingPin.photos;
     const dates = _editingPin.photoDates || [];
@@ -2054,15 +2072,18 @@ function reorderUp(e) {
     const movedDate = dates[origin];
     photos.splice(origin, 1);
     if (dates.length > 0) dates.splice(origin, 1);
-    // 削除によって origin より後ろのインデックスは-1ずれる
+    // origin より後ろに挿入する場合は -1
     const adjusted = target > origin ? target - 1 : target;
     photos.splice(adjusted, 0, movedPhoto);
-    if (dates.length >= 0 && movedDate !== undefined) dates.splice(adjusted, 0, movedDate);
+    if (movedDate !== undefined) dates.splice(adjusted, 0, movedDate);
     save();
-    rdbg(`DONE: ${origin}->${adjusted}`);
+    moved = true;
+    rdbg(`DONE: ${origin} -> ${adjusted}`);
+  } else {
+    rdbg(`NO MOVE: origin=${origin} target=${target}`);
   }
 
-  // 直後のclickを止める
+  // 直後のclickを止める (ドラッグした時のみ抑制したい)
   const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); window.removeEventListener('click', stop, true); };
   window.addEventListener('click', stop, true);
   setTimeout(() => window.removeEventListener('click', stop, true), 300);
@@ -2070,7 +2091,10 @@ function reorderUp(e) {
   // クリーンアップ
   if (REORDER.ghost) REORDER.ghost.remove();
   if (REORDER.indicator) REORDER.indicator.remove();
-  if (REORDER.thumb) REORDER.thumb.classList.remove('dragging', 'long-press-active');
+  if (REORDER.thumb) {
+    REORDER.thumb.style.display = '';
+    REORDER.thumb.classList.remove('dragging', 'long-press-active');
+  }
   const c = document.getElementById('pin-photos');
   if (c) c.classList.remove('reordering');
   REORDER.ghost = null;
