@@ -197,22 +197,90 @@
   }
   .photo-thumb img { width: 100%; height: auto; display: block; max-height: 400px; object-fit: contain; background: #000; }
   .photo-thumb .del-photo {
-    position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.6);
-    border: none; color: #fff; border-radius: 50%; width: 22px; height: 22px;
-    font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(255,255,255,0.15); color: #fff;
+    border-radius: 50%; width: 40px; height: 40px;
+    font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
   }
+  .photo-thumb .del-photo:active { background: var(--ng); transform: scale(0.92); }
   .photo-thumb .save-photo {
-    position: absolute; top: 4px; right: 32px; background: rgba(0,0,0,0.6);
-    border: none; color: #fff; border-radius: 12px; height: 22px;
-    padding: 0 8px; font-size: 11px; cursor: pointer;
-    display: flex; align-items: center; gap: 3px;
+    position: absolute; top: 8px; right: 56px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(255,255,255,0.15); color: #fff;
+    border-radius: 20px; height: 40px;
+    padding: 0 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
   }
-  .photo-thumb .save-photo:active { background: var(--accent); }
+  .photo-thumb .save-photo:active { background: var(--accent); transform: scale(0.96); }
   .photo-thumb .photo-idx {
-    position: absolute; bottom: 4px; left: 4px; background: rgba(0,0,0,0.6);
-    color: #fff; border-radius: 10px; padding: 2px 8px; font-size: 11px;
+    position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,0.65);
+    color: #fff; border-radius: 12px; padding: 4px 10px; font-size: 12px; font-weight: 600;
     pointer-events: none;
   }
+
+  /* SELECT MODE */
+  .photo-thumb .photo-check {
+    position: absolute; top: 8px; left: 8px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    border: 2px solid rgba(255,255,255,0.85);
+    display: none;
+    align-items: center; justify-content: center;
+    color: transparent;
+    font-size: 18px; font-weight: 700;
+    cursor: pointer;
+    z-index: 3;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    transition: background 0.1s, color 0.1s;
+  }
+  #pin-photos.select-mode .photo-thumb .photo-check { display: flex; }
+  #pin-photos.select-mode .photo-thumb.selected .photo-check {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+  #pin-photos.select-mode .photo-thumb.selected {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+  }
+  /* 選択モード中は保存/削除ボタンを隠す */
+  #pin-photos.select-mode .photo-thumb .del-photo,
+  #pin-photos.select-mode .photo-thumb .save-photo { display: none; }
+
+  /* 選択モードのアクションバー */
+  #select-action-bar {
+    position: fixed; left: 0; right: 0;
+    bottom: 0;
+    padding: 10px 14px calc(10px + var(--safe-bottom)) 14px;
+    background: rgba(20,20,30,0.95);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(233,69,96,0.4);
+    display: none;
+    align-items: center; gap: 8px;
+    z-index: 110;
+  }
+  #select-action-bar.show { display: flex; }
+  /* 選択モード中はモーダル下部に追加余白を作って、アクションバーに隠れないようにする */
+  #pin-modal.select-active .modal {
+    padding-bottom: calc(80px + var(--safe-bottom));
+  }
+  #select-action-bar .sel-count {
+    color: var(--accent); font-weight: 700; font-size: 14px;
+    margin-right: auto;
+  }
+  #select-action-bar button {
+    background: var(--surface2); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text); padding: 8px 12px; border-radius: 8px;
+    font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+  }
+  #select-action-bar button:active { transform: scale(0.96); }
+  #select-action-bar button.sel-save { background: var(--accent2); border-color: var(--accent); color: var(--accent); }
+  #select-action-bar button.sel-delete { background: rgba(231,76,60,0.15); border-color: var(--ng); color: var(--ng); }
+  #select-action-bar button:disabled { opacity: 0.4; cursor: not-allowed; }
   .add-photo-btn {
     width: 100%; padding: 14px; border-radius: 8px; background: var(--surface2);
     border: 1px dashed rgba(255,255,255,0.2);
@@ -316,12 +384,46 @@
     -webkit-user-drag: none;
     pointer-events: none;
   }
-  #photo-viewer .close-viewer {
-    position: absolute; top: calc(16px + var(--safe-top)); right: 16px;
-    background: rgba(255,255,255,0.4); border: none; color: #fff;
-    width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer;
+  #viewer-toolbar {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: calc(8px + var(--safe-top)) 12px 8px 16px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.7), rgba(0,0,0,0));
+    display: flex; align-items: center; gap: 8px;
     z-index: 10;
   }
+  #viewer-counter {
+    color: #fff; font-size: 14px; font-weight: 600;
+    background: rgba(0,0,0,0.4); padding: 6px 12px; border-radius: 14px;
+    backdrop-filter: blur(8px);
+  }
+  .viewer-action-btn {
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2);
+    color: #fff; width: 44px; height: 44px; border-radius: 50%;
+    font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(8px);
+    transition: transform 0.1s, background 0.15s;
+  }
+  .viewer-action-btn:active { transform: scale(0.92); background: rgba(255,255,255,0.3); }
+  .viewer-del-btn:active { background: var(--ng); }
+
+  #viewer-nav-prev, #viewer-nav-next {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    width: 48px; height: 64px;
+    display: none;
+    align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.7); font-size: 40px; font-weight: 300;
+    background: rgba(0,0,0,0.3);
+    cursor: pointer; user-select: none;
+    z-index: 10;
+  }
+  #viewer-nav-prev { left: 0; border-radius: 0 8px 8px 0; }
+  #viewer-nav-next { right: 0; border-radius: 8px 0 0 8px; }
+  #viewer-nav-prev.show, #viewer-nav-next.show { display: flex; }
+  #viewer-nav-prev:active, #viewer-nav-next:active {
+    background: rgba(0,0,0,0.6); color: #fff;
+  }
+
   #viewer-hint {
     position: absolute; bottom: calc(20px + var(--safe-bottom)); left: 50%;
     transform: translateX(-50%);
@@ -616,6 +718,10 @@
     <div class="modal-handle"></div>
     <div style="display:flex; align-items:center; margin-bottom:12px; gap:8px; flex-wrap:wrap;">
       <div class="modal-title" id="pin-modal-title" style="margin-bottom:0; flex:1; min-width:0;">📍 ピン #1</div>
+      <div class="burst-toggle" id="select-toggle" onclick="togglePhotoSelectMode()" style="display:none">
+        <div class="burst-dot"></div>
+        <span>選択</span>
+      </div>
       <div class="burst-toggle" id="burst-toggle" onclick="toggleBurstMode()">
         <div class="burst-dot"></div>
         <span>連写</span>
@@ -662,12 +768,29 @@
   <button class="pin-jump-btn" onclick="jumpPinModal('bottom')" title="最下部へ">⤓</button>
 </div>
 
+<!-- Photo Select Mode Action Bar -->
+<div id="select-action-bar">
+  <span class="sel-count" id="sel-count">0 枚選択</span>
+  <button onclick="selectAllPhotos()">全選択</button>
+  <button class="sel-save" onclick="saveSelectedPhotos()" id="sel-save-btn">📱 保存</button>
+  <button class="sel-delete" onclick="deleteSelectedPhotos()" id="sel-delete-btn">🗑️ 削除</button>
+  <button onclick="exitPhotoSelectMode()">×</button>
+</div>
+
 <!-- Photo Viewer -->
 <div id="photo-viewer">
-  <button class="close-viewer" onclick="closePhotoViewer()">✕</button>
+  <div id="viewer-toolbar">
+    <div id="viewer-counter">1 / 1</div>
+    <div style="flex:1"></div>
+    <button class="viewer-action-btn" onclick="saveCurrentViewerPhoto()" title="保存">📱</button>
+    <button class="viewer-action-btn viewer-del-btn" onclick="deleteCurrentViewerPhoto()" title="削除">🗑️</button>
+    <button class="viewer-action-btn" onclick="closePhotoViewer()" title="閉じる">✕</button>
+  </div>
   <div id="viewer-stage">
     <img id="viewer-img" src="" alt="">
   </div>
+  <div id="viewer-nav-prev" onclick="navigateViewer(-1)">‹</div>
+  <div id="viewer-nav-next" onclick="navigateViewer(1)">›</div>
   <div id="viewer-hint">ピンチで拡大 / ダブルタップでズーム</div>
 </div>
 
@@ -1523,6 +1646,8 @@ function openPinDetail(pinId) {
   // 新規のピンを開くたびに連写カウントをリセット (モードのON/OFFは維持)
   burstState.count = 0;
   updateBurstUI();
+  // 選択モードはピンをまたがって持ち越さない
+  exitPhotoSelectMode();
 }
 
 function renderPinColorPicker(pin) {
@@ -1568,19 +1693,217 @@ function setPinStatus(status) {
 function renderPinPhotos(pin) {
   const container = document.getElementById('pin-photos');
   container.innerHTML = '';
+  // 選択モード中なら再描画後もクラスを維持
+  if (selectState.enabled) {
+    container.classList.add('select-mode');
+  } else {
+    container.classList.remove('select-mode');
+  }
   pin.photos.forEach((photo, i) => {
     const thumb = document.createElement('div');
     thumb.className = 'photo-thumb';
+    thumb.dataset.index = i;
+    if (selectState.enabled && selectState.indices.has(i)) {
+      thumb.classList.add('selected');
+    }
     thumb.innerHTML = `
       <img src="${photo}" loading="lazy">
+      <div class="photo-check" onclick="event.stopPropagation(); toggleSelectPhoto(${i})">✓</div>
       <button class="save-photo" onclick="event.stopPropagation(); savePhotoToLibrary(${i})">📱 保存</button>
       <button class="del-photo" onclick="event.stopPropagation(); deletePhoto(${i})">✕</button>
       <div class="photo-idx">#${i+1}</div>
     `;
-    thumb.querySelector('img').onclick = () => openPhotoViewer(photo);
+    thumb.querySelector('img').onclick = () => {
+      if (selectState.enabled) {
+        toggleSelectPhoto(i);
+      } else {
+        openPhotoViewer(i);
+      }
+    };
     container.appendChild(thumb);
   });
   refreshPinJumpButtonsSoon();
+  updateSelectModeUI();
+}
+
+// ========== PHOTO SELECT MODE ==========
+let selectState = {
+  enabled: false,
+  indices: new Set(), // 選択中の写真インデックス
+};
+
+function togglePhotoSelectMode() {
+  if (selectState.enabled) {
+    exitPhotoSelectMode();
+  } else {
+    enterPhotoSelectMode();
+  }
+}
+
+function enterPhotoSelectMode() {
+  if (!_editingPin || _editingPin.photos.length === 0) return;
+  selectState.enabled = true;
+  selectState.indices = new Set();
+  document.getElementById('pin-photos').classList.add('select-mode');
+  document.getElementById('pin-modal').classList.add('select-active');
+  document.getElementById('select-toggle').classList.add('active');
+  document.getElementById('select-action-bar').classList.add('show');
+  updateSelectModeUI();
+}
+
+function exitPhotoSelectMode() {
+  selectState.enabled = false;
+  selectState.indices = new Set();
+  const container = document.getElementById('pin-photos');
+  if (container) {
+    container.classList.remove('select-mode');
+    container.querySelectorAll('.photo-thumb.selected').forEach(el => el.classList.remove('selected'));
+  }
+  const modal = document.getElementById('pin-modal');
+  if (modal) modal.classList.remove('select-active');
+  const toggle = document.getElementById('select-toggle');
+  if (toggle) toggle.classList.remove('active');
+  const bar = document.getElementById('select-action-bar');
+  if (bar) bar.classList.remove('show');
+}
+
+function toggleSelectPhoto(index) {
+  if (!selectState.enabled) return;
+  if (selectState.indices.has(index)) {
+    selectState.indices.delete(index);
+  } else {
+    selectState.indices.add(index);
+  }
+  // DOMの反映
+  const container = document.getElementById('pin-photos');
+  const thumb = container && container.querySelector(`.photo-thumb[data-index="${index}"]`);
+  if (thumb) thumb.classList.toggle('selected', selectState.indices.has(index));
+  updateSelectModeUI();
+}
+
+function selectAllPhotos() {
+  if (!selectState.enabled || !_editingPin) return;
+  const all = _editingPin.photos.length;
+  const allSelected = selectState.indices.size === all;
+  if (allSelected) {
+    selectState.indices = new Set();
+  } else {
+    selectState.indices = new Set(Array.from({ length: all }, (_, i) => i));
+  }
+  // DOM反映
+  const container = document.getElementById('pin-photos');
+  if (container) {
+    container.querySelectorAll('.photo-thumb').forEach(el => {
+      const idx = parseInt(el.dataset.index, 10);
+      el.classList.toggle('selected', selectState.indices.has(idx));
+    });
+  }
+  updateSelectModeUI();
+}
+
+function updateSelectModeUI() {
+  // 選択モードトグルの表示制御（写真が1枚もないと無意味）
+  const toggle = document.getElementById('select-toggle');
+  if (toggle) {
+    toggle.style.display = (_editingPin && _editingPin.photos.length > 0) ? 'flex' : 'none';
+  }
+  // カウントとボタン状態
+  const count = selectState.indices.size;
+  const countEl = document.getElementById('sel-count');
+  if (countEl) countEl.textContent = `${count} 枚選択`;
+  const saveBtn = document.getElementById('sel-save-btn');
+  const delBtn = document.getElementById('sel-delete-btn');
+  if (saveBtn) saveBtn.disabled = count === 0;
+  if (delBtn) delBtn.disabled = count === 0;
+}
+
+async function saveSelectedPhotos() {
+  if (!_editingPin || selectState.indices.size === 0) return;
+  // インデックスを昇順で取り出す
+  const indices = [...selectState.indices].sort((a, b) => a - b);
+  const filenamesJpg = buildPhotoFilenames(_editingPin, 'jpg');
+  const filenamesPng = buildPhotoFilenames(_editingPin, 'png');
+
+  const files = indices.map(i => {
+    const blob = dataURLToBlob(_editingPin.photos[i]);
+    const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+    const fname = ext === 'png' ? filenamesPng[i] : filenamesJpg[i];
+    return new File([blob], fname, { type: blob.type });
+  });
+
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try {
+      await navigator.share({
+        files,
+        title: `ピン #${_editingPin.num} の写真 (${files.length}枚)`,
+      });
+      return;
+    } catch(err) {
+      if (err && err.name === 'AbortError') return;
+      console.warn('navigator.share failed:', err);
+    }
+  }
+
+  // フォールバック
+  if (files.length === 1) {
+    const url = URL.createObjectURL(files[0]);
+    const a = document.createElement('a');
+    a.href = url; a.download = files[0].name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    alert('この環境ではカメラロールへの直接保存に対応していません。\nダウンロードフォルダに保存しました。');
+  } else {
+    alert('この環境ではカメラロールへの一括保存に対応していません。\nZIPダウンロードをご利用ください。');
+  }
+}
+
+function deleteSelectedPhotos() {
+  if (!_editingPin || selectState.indices.size === 0) return;
+  const count = selectState.indices.size;
+  if (!confirm(`選択した ${count} 枚の写真を削除しますか？\nこの操作は元に戻せません。`)) return;
+
+  // 削除前のスクロール参照位置 = 選択した最小インデックスの直前
+  const indices = [...selectState.indices].sort((a, b) => a - b);
+  const minIdx = indices[0];
+  const targetIndex = minIdx === 0 ? 0 : minIdx - 1;
+
+  // 後ろから削除（インデックスがずれないように）
+  const sortedDesc = [...indices].sort((a, b) => b - a);
+  for (const i of sortedDesc) {
+    _editingPin.photos.splice(i, 1);
+    if (_editingPin.photoDates) _editingPin.photoDates.splice(i, 1);
+  }
+  save();
+
+  // 選択状態をリセットして再描画
+  selectState.indices = new Set();
+  renderPinPhotos(_editingPin);
+
+  // 写真がなくなったら選択モード解除
+  if (_editingPin.photos.length === 0) {
+    exitPhotoSelectMode();
+    return;
+  }
+
+  // スクロール位置維持
+  const scrollToTarget = () => {
+    const container = document.getElementById('pin-photos');
+    const scroller = getPinModalScrollEl();
+    if (!container || !scroller) return;
+    const thumbs = container.querySelectorAll('.photo-thumb');
+    const target = thumbs[Math.min(targetIndex, thumbs.length - 1)];
+    if (!target) return;
+    const tr = target.getBoundingClientRect();
+    const sr = scroller.getBoundingClientRect();
+    scroller.scrollTo({ top: scroller.scrollTop + (tr.top - sr.top - 12), behavior: 'auto' });
+  };
+  requestAnimationFrame(() => {
+    scrollToTarget();
+    setTimeout(scrollToTarget, 50);
+    setTimeout(scrollToTarget, 250);
+  });
+
+  updateSelectModeUI();
 }
 
 // ========== BURST MODE ==========
@@ -1655,10 +1978,39 @@ function openAspectModal() {
 
 function deletePhoto(index) {
   if (!_editingPin) return;
+  if (!confirm(`写真 #${index+1} を削除しますか？`)) return;
+
+  // 削除後に戻すターゲット: 削除した写真の直前の写真
+  // 先頭(index=0)を消した場合は新しい先頭(元index=1)を見せる
+  const targetIndex = index === 0 ? 0 : index - 1;
+
   _editingPin.photos.splice(index, 1);
   if (_editingPin.photoDates) _editingPin.photoDates.splice(index, 1);
   save();
   renderPinPhotos(_editingPin);
+
+  // 再描画後、ターゲット写真の位置にスクロール
+  if (_editingPin.photos.length === 0) return;
+
+  const scrollToTarget = () => {
+    const container = document.getElementById('pin-photos');
+    const scroller = getPinModalScrollEl();
+    if (!container || !scroller) return;
+    const thumbs = container.querySelectorAll('.photo-thumb');
+    const target = thumbs[targetIndex];
+    if (!target) return;
+    const targetRect = target.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const delta = targetRect.top - scrollerRect.top - 12;
+    scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'auto' });
+  };
+
+  requestAnimationFrame(() => {
+    scrollToTarget();
+    // 画像ロード完了でレイアウトが変わる可能性があるため、もう一度補正
+    setTimeout(scrollToTarget, 50);
+    setTimeout(scrollToTarget, 250);
+  });
 }
 
 function startCapture(aspect) {
@@ -1996,6 +2348,8 @@ function closeModal(id) {
     // ジャンプボタンを隠す
     const jb = document.getElementById('pin-jump-buttons');
     if (jb) jb.classList.remove('show');
+    // 選択モードを終了
+    exitPhotoSelectMode();
   }
 }
 
@@ -2300,16 +2654,29 @@ function setupPhotoViewerGestures() {
   });
 }
 
-function openPhotoViewer(src) {
+// ========== PHOTO VIEWER (with actions) ==========
+let _viewerCurrentIndex = -1; // _editingPin.photos の現在表示中インデックス
+
+function openPhotoViewer(srcOrIndex) {
+  // 後方互換: 文字列(dataURL)が来たら _editingPin.photos から探す
+  let index = -1;
+  if (typeof srcOrIndex === 'number') {
+    index = srcOrIndex;
+  } else if (typeof srcOrIndex === 'string' && _editingPin) {
+    index = _editingPin.photos.indexOf(srcOrIndex);
+  }
+  if (index < 0 || !_editingPin || !_editingPin.photos[index]) return;
+
+  _viewerCurrentIndex = index;
   const img = document.getElementById('viewer-img');
   resetViewerTransform();
-  img.src = src;
+  img.src = _editingPin.photos[index];
   document.getElementById('photo-viewer').classList.add('open');
-  // measure after layout
+  updateViewerToolbar();
+
   requestAnimationFrame(() => {
     measureViewerImage();
   });
-  // Show hint, then fade
   const hint = document.getElementById('viewer-hint');
   if (hint) {
     hint.style.opacity = '1';
@@ -2317,9 +2684,81 @@ function openPhotoViewer(src) {
     openPhotoViewer._hintTimer = setTimeout(() => { hint.style.opacity = '0'; }, 2000);
   }
 }
+
+function updateViewerToolbar() {
+  if (!_editingPin) return;
+  const total = _editingPin.photos.length;
+  const counter = document.getElementById('viewer-counter');
+  if (counter) counter.textContent = `${_viewerCurrentIndex + 1} / ${total}`;
+  // ナビボタンは2枚以上で表示
+  const prev = document.getElementById('viewer-nav-prev');
+  const next = document.getElementById('viewer-nav-next');
+  if (prev) prev.classList.toggle('show', total > 1 && _viewerCurrentIndex > 0);
+  if (next) next.classList.toggle('show', total > 1 && _viewerCurrentIndex < total - 1);
+}
+
+function navigateViewer(delta) {
+  if (!_editingPin) return;
+  const total = _editingPin.photos.length;
+  const newIndex = _viewerCurrentIndex + delta;
+  if (newIndex < 0 || newIndex >= total) return;
+  _viewerCurrentIndex = newIndex;
+  resetViewerTransform();
+  const img = document.getElementById('viewer-img');
+  img.src = _editingPin.photos[newIndex];
+  updateViewerToolbar();
+  requestAnimationFrame(() => measureViewerImage());
+}
+
+async function saveCurrentViewerPhoto() {
+  if (!_editingPin || _viewerCurrentIndex < 0) return;
+  await savePhotoToLibrary(_viewerCurrentIndex);
+}
+
+function deleteCurrentViewerPhoto() {
+  if (!_editingPin || _viewerCurrentIndex < 0) return;
+  const idx = _viewerCurrentIndex;
+  if (!confirm(`写真 #${idx+1} を削除しますか？`)) return;
+
+  _editingPin.photos.splice(idx, 1);
+  if (_editingPin.photoDates) _editingPin.photoDates.splice(idx, 1);
+  save();
+  renderPinPhotos(_editingPin);
+
+  // 写真が全部消えたらビューアを閉じる
+  if (_editingPin.photos.length === 0) {
+    closePhotoViewer();
+    return;
+  }
+  // 次の写真にスライド: 最後の写真を消した場合は1つ前へ
+  const nextIndex = Math.min(idx, _editingPin.photos.length - 1);
+  _viewerCurrentIndex = nextIndex;
+  resetViewerTransform();
+  const img = document.getElementById('viewer-img');
+  img.src = _editingPin.photos[nextIndex];
+  updateViewerToolbar();
+  requestAnimationFrame(() => measureViewerImage());
+
+  // ピン詳細モーダル側のスクロール位置も合わせる
+  // (ビューアを閉じた後に正しい位置が見えるように)
+  const targetThumbIndex = nextIndex;
+  setTimeout(() => {
+    const container = document.getElementById('pin-photos');
+    const scroller = getPinModalScrollEl();
+    if (!container || !scroller) return;
+    const thumbs = container.querySelectorAll('.photo-thumb');
+    const target = thumbs[targetThumbIndex];
+    if (!target) return;
+    const tr = target.getBoundingClientRect();
+    const sr = scroller.getBoundingClientRect();
+    scroller.scrollTo({ top: scroller.scrollTop + (tr.top - sr.top - 12), behavior: 'auto' });
+  }, 50);
+}
+
 function closePhotoViewer() {
   document.getElementById('photo-viewer').classList.remove('open');
   resetViewerTransform();
+  _viewerCurrentIndex = -1;
 }
 
 // Initialize viewer gestures once DOM is ready
