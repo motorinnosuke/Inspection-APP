@@ -200,38 +200,43 @@
 
   /* REORDER MODE: ↑↓ ボタン */
   .reorder-controls {
-    position: absolute; right: 8px; bottom: 8px;
+    position: absolute; left: 50%; bottom: 8px;
+    transform: translateX(-50%);
     display: none;
     flex-direction: row; gap: 6px;
-    background: rgba(0,0,0,0.75);
-    padding: 6px;
-    border-radius: 24px;
+    background: rgba(0,0,0,0.85);
+    padding: 6px 8px;
+    border-radius: 28px;
     backdrop-filter: blur(8px);
     z-index: 4;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    border: 1px solid var(--accent);
   }
-  #pin-photos.reorder-mode .reorder-controls { display: flex; }
+  .photo-thumb.show-arrows .reorder-controls { display: flex; }
   .ro-btn {
-    width: 40px; height: 40px;
+    width: 44px; height: 44px;
     border-radius: 50%;
     background: rgba(255,255,255,0.15);
     border: 1px solid rgba(255,255,255,0.25);
     color: #fff;
-    font-size: 18px; font-weight: 700;
+    font-size: 20px; font-weight: 700;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: transform 0.1s, background 0.15s;
   }
   .ro-btn:active { transform: scale(0.9); background: var(--accent); }
   .ro-btn:disabled { opacity: 0.3; pointer-events: none; }
-  /* 並び替えモード中はサムネ全体に青みのある枠を出して識別 */
-  #pin-photos.reorder-mode .photo-thumb {
-    outline: 2px solid rgba(100,150,255,0.3);
-    outline-offset: -2px;
+  .ro-btn.ro-close { background: rgba(255,255,255,0.1); font-size: 16px; }
+  /* アクティブなサムネは赤い枠で強調 */
+  .photo-thumb.show-arrows {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+    box-shadow: 0 0 16px rgba(233,69,96,0.6);
   }
-  /* 並び替えモード中は保存/削除/チェックボックスを隠す (操作の干渉防止) */
-  #pin-photos.reorder-mode .photo-thumb .del-photo,
-  #pin-photos.reorder-mode .photo-thumb .save-photo,
-  #pin-photos.reorder-mode .photo-thumb .photo-check { display: none; }
+  /* アクティブ時は保存/削除/チェックボックスを隠す (矢印操作に集中) */
+  .photo-thumb.show-arrows .del-photo,
+  .photo-thumb.show-arrows .save-photo,
+  .photo-thumb.show-arrows .photo-check { display: none; }
   .photo-thumb img { width: 100%; height: auto; display: block; max-height: 400px; object-fit: contain; background: #000; }
   .photo-thumb .del-photo {
     position: absolute; top: 8px; right: 8px;
@@ -758,10 +763,6 @@
       <div class="burst-toggle" id="select-toggle" onclick="togglePhotoSelectMode()" style="display:none">
         <div class="burst-dot"></div>
         <span>選択</span>
-      </div>
-      <div class="burst-toggle" id="reorder-toggle" onclick="togglePhotoReorderMode()" style="display:none">
-        <div class="burst-dot"></div>
-        <span>並替</span>
       </div>
       <div class="burst-toggle" id="burst-toggle" onclick="toggleBurstMode()">
         <div class="burst-dot"></div>
@@ -1689,8 +1690,8 @@ function openPinDetail(pinId) {
   updateBurstUI();
   // 選択モードはピンをまたがって持ち越さない
   exitPhotoSelectMode();
-  // 並び替えモードもリセット
-  if (reorderMode) exitReorderMode();
+  // 並び替えのアクティブもリセット
+  clearReorderActive();
 }
 
 function renderPinColorPicker(pin) {
@@ -1741,11 +1742,6 @@ function renderPinPhotos(pin) {
   } else {
     container.classList.remove('select-mode');
   }
-  if (reorderMode) {
-    container.classList.add('reorder-mode');
-  } else {
-    container.classList.remove('reorder-mode');
-  }
   const total = pin.photos.length;
   pin.photos.forEach((photo, i) => {
     const thumb = document.createElement('div');
@@ -1753,6 +1749,9 @@ function renderPinPhotos(pin) {
     thumb.dataset.index = i;
     if (selectState.enabled && selectState.indices.has(i)) {
       thumb.classList.add('selected');
+    }
+    if (i === activeReorderIndex) {
+      thumb.classList.add('show-arrows');
     }
     const upDisabled = i === 0;
     const downDisabled = i === total - 1;
@@ -1767,64 +1766,103 @@ function renderPinPhotos(pin) {
         <button class="ro-btn" ${upDisabled?'disabled':''} onclick="event.stopPropagation(); moveThumb(${i}, -1)" title="1つ上へ">↑</button>
         <button class="ro-btn" ${downDisabled?'disabled':''} onclick="event.stopPropagation(); moveThumb(${i}, 1)" title="1つ下へ">↓</button>
         <button class="ro-btn" ${downDisabled?'disabled':''} onclick="event.stopPropagation(); moveThumb(${i}, Infinity)" title="最下部へ">⤓</button>
+        <button class="ro-btn ro-close" onclick="event.stopPropagation(); clearReorderActive()" title="閉じる">✕</button>
       </div>
     `;
     thumb.querySelector('img').onclick = () => {
       if (selectState.enabled) {
         toggleSelectPhoto(i);
-      } else if (!reorderMode) {
-        openPhotoViewer(i);
+      } else {
+        // アクティブな並び替え矢印が出ている時は、写真タップで閉じる
+        if (activeReorderIndex !== -1) {
+          clearReorderActive();
+        } else {
+          openPhotoViewer(i);
+        }
       }
     };
+    bindLongPressForReorder(thumb, i);
     container.appendChild(thumb);
   });
   refreshPinJumpButtonsSoon();
   updateSelectModeUI();
-  updateReorderToggleVisibility();
 }
 
-// ========== PHOTO REORDER (tap arrows) ==========
-// シンプルな ↑↓ ボタン方式
-let reorderMode = false;
+// ========== PHOTO REORDER (long-press → arrows on one thumb) ==========
+// 長押しでアクティブにしたサムネにだけ ↑↓⤒⤓ を表示する方式
+let activeReorderIndex = -1; // -1 = 非表示
 
-function togglePhotoReorderMode() {
-  if (!_editingPin || _editingPin.photos.length < 2) {
-    if (reorderMode) exitReorderMode();
+function clearReorderActive() {
+  activeReorderIndex = -1;
+  const container = document.getElementById('pin-photos');
+  if (container) {
+    container.querySelectorAll('.photo-thumb.show-arrows').forEach(el => el.classList.remove('show-arrows'));
+  }
+}
+
+function setReorderActive(index) {
+  if (!_editingPin) return;
+  if (index < 0 || index >= _editingPin.photos.length) return;
+  // 同じインデックスなら解除 (トグル)
+  if (activeReorderIndex === index) {
+    clearReorderActive();
     return;
   }
-  if (reorderMode) exitReorderMode(); else enterReorderMode();
-}
-
-function enterReorderMode() {
   // 他のモードと排他
   if (selectState && selectState.enabled) exitPhotoSelectMode();
-  reorderMode = true;
+  activeReorderIndex = index;
   const container = document.getElementById('pin-photos');
-  if (container) container.classList.add('reorder-mode');
-  const toggle = document.getElementById('reorder-toggle');
-  if (toggle) toggle.classList.add('active');
-  if (_editingPin) renderPinPhotos(_editingPin);
-}
-
-function exitReorderMode() {
-  reorderMode = false;
-  const container = document.getElementById('pin-photos');
-  if (container) container.classList.remove('reorder-mode');
-  const toggle = document.getElementById('reorder-toggle');
-  if (toggle) toggle.classList.remove('active');
-  if (_editingPin) renderPinPhotos(_editingPin);
-}
-
-function updateReorderToggleVisibility() {
-  const toggle = document.getElementById('reorder-toggle');
-  if (!toggle) return;
-  // 写真2枚以上で表示
-  if (_editingPin && _editingPin.photos.length >= 2) {
-    toggle.style.display = 'flex';
-  } else {
-    toggle.style.display = 'none';
-    if (reorderMode) exitReorderMode();
+  if (!container) return;
+  container.querySelectorAll('.photo-thumb.show-arrows').forEach(el => el.classList.remove('show-arrows'));
+  const thumb = container.querySelector(`.photo-thumb[data-index="${index}"]`);
+  if (thumb) {
+    thumb.classList.add('show-arrows');
+    try { if (navigator.vibrate) navigator.vibrate(15); } catch(_) {}
   }
+}
+
+function bindLongPressForReorder(thumb, index) {
+  let pressTimer = null;
+  let startX = 0, startY = 0;
+  let pid = null;
+  let active = false; // 長押し進行中かどうか
+
+  thumb.addEventListener('pointerdown', (e) => {
+    // 既存の操作と干渉しない
+    if (e.target.closest('.del-photo, .save-photo, .photo-check, .ro-btn')) return;
+    if (selectState && selectState.enabled) return;
+    startX = e.clientX;
+    startY = e.clientY;
+    pid = e.pointerId;
+    active = true;
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(() => {
+      if (!active) return;
+      setReorderActive(index);
+      active = false;
+    }, 500);
+  });
+
+  thumb.addEventListener('pointermove', (e) => {
+    if (!active || e.pointerId !== pid) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.hypot(dx, dy) > 15) {
+      // 動きすぎたらキャンセル (スクロール意図)
+      clearTimeout(pressTimer);
+      active = false;
+    }
+  });
+
+  const endHandler = (e) => {
+    if (e.pointerId !== pid) return;
+    if (active) {
+      clearTimeout(pressTimer);
+      active = false;
+    }
+  };
+  thumb.addEventListener('pointerup', endHandler);
+  thumb.addEventListener('pointercancel', endHandler);
 }
 
 function moveThumb(index, direction) {
@@ -1835,18 +1873,14 @@ function moveThumb(index, direction) {
   if (index < 0 || index >= photos.length) return;
 
   let newIndex;
-  if (direction === -Infinity) {
-    newIndex = 0;
-  } else if (direction === Infinity) {
-    newIndex = photos.length - 1;
-  } else {
-    newIndex = index + direction;
-  }
+  if (direction === -Infinity) newIndex = 0;
+  else if (direction === Infinity) newIndex = photos.length - 1;
+  else newIndex = index + direction;
+
   if (newIndex < 0) newIndex = 0;
   if (newIndex >= photos.length) newIndex = photos.length - 1;
   if (newIndex === index) return;
 
-  // splice で移動
   const [photo] = photos.splice(index, 1);
   photos.splice(newIndex, 0, photo);
   if (dates.length > 0) {
@@ -1854,8 +1888,12 @@ function moveThumb(index, direction) {
     dates.splice(newIndex, 0, d);
   }
   save();
+
+  // アクティブインデックスも一緒に移動して、矢印を維持
+  activeReorderIndex = newIndex;
   renderPinPhotos(_editingPin);
-  // 移動後の写真にスクロール
+
+  // 移動後の写真にスクロール (中央付近に来るように)
   requestAnimationFrame(() => {
     const container = document.getElementById('pin-photos');
     const scroller = getPinModalScrollEl();
@@ -1865,7 +1903,7 @@ function moveThumb(index, direction) {
     if (!target) return;
     const tr = target.getBoundingClientRect();
     const sr = scroller.getBoundingClientRect();
-    const delta = tr.top - sr.top - 60;
+    const delta = tr.top - sr.top - (sr.height / 2 - tr.height / 2);
     scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'smooth' });
   });
 }
@@ -2494,8 +2532,8 @@ function closeModal(id) {
     if (jb) jb.classList.remove('show');
     // 選択モードを終了
     exitPhotoSelectMode();
-    // 並び替えモードを終了
-    if (reorderMode) exitReorderMode();
+    // 並び替えアクティブをリセット
+    clearReorderActive();
   }
 }
 
