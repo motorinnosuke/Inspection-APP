@@ -229,6 +229,7 @@
     cursor: pointer; margin-top: 8px;
   }
   .btn-zip:active { border-color: var(--accent); color: var(--accent); }
+  .btn-danger {
     width: 100%; padding: 12px; background: transparent; color: var(--ng);
     border: 1px solid var(--ng); border-radius: var(--radius); font-size: 14px;
     cursor: pointer; margin-top: 8px;
@@ -403,6 +404,62 @@
   }
   .summary-item { display: flex; align-items: center; gap: 4px; font-size: 12px; }
   .summary-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ===== LANDSCAPE COMPACT (横画面: ヘッダー類を圧縮して図面エリアを広げる) ===== */
+  /* 横画面全般: 中程度の圧縮 (iPad横画面など) */
+  @media (orientation: landscape) {
+    header { padding: 6px 16px; }
+    header h1 { font-size: 14px; }
+    .header-btn { padding: 5px 12px; font-size: 12px; }
+
+    #folder-tabs { padding: 5px 16px; gap: 5px; }
+    .folder-tab { padding: 3px 10px; font-size: 11px; }
+    #floor-tabs { padding: 5px 16px; gap: 6px; }
+    .floor-tab { padding: 4px 12px; font-size: 12px; }
+
+    #summary-bar { padding: 4px 16px; gap: 12px; }
+    .summary-item { font-size: 11px; }
+    .summary-dot { width: 7px; height: 7px; }
+
+    #toolbar {
+      padding: 6px 16px;
+      padding-bottom: calc(6px + var(--safe-bottom));
+      gap: 8px;
+    }
+    .tool-btn {
+      flex-direction: row; gap: 8px;
+      padding: 8px 6px; font-size: 12px;
+    }
+    .tool-btn .icon { font-size: 18px; }
+  }
+
+  /* 横画面かつ縦が小さい (iPhone横画面) : さらに圧縮 */
+  @media (orientation: landscape) and (max-height: 500px) {
+    header { padding: 3px 12px; }
+    header h1 { font-size: 12px; }
+    .header-btn { padding: 3px 9px; font-size: 11px; }
+
+    #folder-tabs { padding: 3px 12px; gap: 4px; }
+    .folder-tab { padding: 2px 8px; font-size: 10px; }
+    #floor-tabs { padding: 3px 12px; gap: 5px; }
+    .floor-tab { padding: 2px 9px; font-size: 11px; }
+
+    #summary-bar { padding: 3px 12px; gap: 10px; }
+    .summary-item { font-size: 10px; gap: 3px; }
+    .summary-dot { width: 6px; height: 6px; }
+
+    #toolbar {
+      padding: 3px 12px;
+      padding-bottom: calc(3px + var(--safe-bottom));
+      gap: 6px;
+    }
+    .tool-btn {
+      padding: 5px 4px; font-size: 10px;
+    }
+    .tool-btn .icon { font-size: 14px; }
+
+    .zoom-hint { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -1563,6 +1620,7 @@ function openAspectModal() {
 function deletePhoto(index) {
   if (!_editingPin) return;
   _editingPin.photos.splice(index, 1);
+  if (_editingPin.photoDates) _editingPin.photoDates.splice(index, 1);
   save();
   renderPinPhotos(_editingPin);
 }
@@ -1635,7 +1693,9 @@ function handleCameraCapture(input) {
       if (!pin) return;
 
       if (!pin.photos) pin.photos = [];
+      if (!pin.photoDates) pin.photoDates = [];
       pin.photos.push(data);
+      pin.photoDates.push(new Date().toISOString());
       if (!pin.aspect) pin.aspect = aspect;
       state.currentFloorId = floor.id;
       _editingPin = pin;
@@ -2247,19 +2307,43 @@ function dataURLToBlob(dataUrl) {
   return new Blob([arr], { type: mime });
 }
 
+// ピン内の各写真のファイル名を生成: YYYYMMDD-NN.jpg
+// 同じ日に撮られた写真同士で日内連番を採番する
+function buildPhotoFilenames(pin, ext) {
+  const photos = pin.photos || [];
+  const dates = pin.photoDates || [];
+  const fallbackISO = pin.createdAt || new Date().toISOString();
+
+  // 日付ごとに「その日の何枚目か」をカウント
+  const seqByDate = {};
+  return photos.map((_, i) => {
+    const iso = dates[i] || fallbackISO;
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${y}${m}${day}`;
+    seqByDate[dateStr] = (seqByDate[dateStr] || 0) + 1;
+    const seq = String(seqByDate[dateStr]).padStart(2, '0');
+    return `${dateStr}-${seq}.${ext}`;
+  });
+}
+
 async function savePinPhotosToLibrary() {
   if (!_editingPin) return;
   const photos = _editingPin.photos || [];
   if (photos.length === 0) { alert('写真がありません'); return; }
 
-  const floor = getFloor(state.currentFloorId);
-  const baseName = `${floor ? floor.name : '図面'}_ピン${_editingPin.num}`;
+  // 写真の拡張子を判定(全部jpg想定だが一応個別に)
+  const ext = (dataURLToBlob(photos[0]).type === 'image/png') ? 'png' : 'jpg';
+  const filenames = buildPhotoFilenames(_editingPin, ext);
 
   // Convert all photos to File objects
   const files = photos.map((dataUrl, i) => {
     const blob = dataURLToBlob(dataUrl);
-    const ext = blob.type === 'image/png' ? 'png' : 'jpg';
-    const filename = `${baseName}_${String(i+1).padStart(2,'0')}.${ext}`;
+    const fileExt = blob.type === 'image/png' ? 'png' : 'jpg';
+    // 拡張子がmix時のためファイル名末尾を実際の型に合わせる
+    const filename = filenames[i].replace(/\.(jpg|png)$/, '.' + fileExt);
     return new File([blob], filename, { type: blob.type });
   });
 
@@ -2300,11 +2384,11 @@ async function savePhotoToLibrary(index) {
   const photo = _editingPin.photos[index];
   if (!photo) return;
 
-  const floor = getFloor(state.currentFloorId);
-  const baseName = `${floor ? floor.name : '図面'}_ピン${_editingPin.num}_${String(index+1).padStart(2,'0')}`;
   const blob = dataURLToBlob(photo);
   const ext = blob.type === 'image/png' ? 'png' : 'jpg';
-  const file = new File([blob], `${baseName}.${ext}`, { type: blob.type });
+  const filenames = buildPhotoFilenames(_editingPin, ext);
+  const filename = filenames[index] || `photo-${index+1}.${ext}`;
+  const file = new File([blob], filename, { type: blob.type });
 
   // Web Share API: 1枚なら最も安定して動く
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -2358,10 +2442,11 @@ async function doPinZip(pin) {
     zip.file('memo.txt', `ピン#${pin.num} [${statusStr}]\n\n${pin.memo}\n作成: ${new Date(pin.createdAt).toLocaleString('ja-JP')}`);
   }
 
+  const filenamesByType = { jpg: buildPhotoFilenames(pin, 'jpg'), png: buildPhotoFilenames(pin, 'png') };
   pin.photos.forEach((dataUrl, i) => {
     const base64 = dataUrl.split(',')[1];
     const ext = dataUrl.includes('image/png') ? 'png' : 'jpg';
-    zip.file(`${String(i+1).padStart(2,'0')}.${ext}`, base64, { base64: true });
+    zip.file(filenamesByType[ext][i], base64, { base64: true });
     const pct = Math.round((i+1) / pin.photos.length * 80);
     progressBar.style.width = pct + '%';
     progressText.textContent = `まとめています... ${i+1}/${pin.photos.length}枚`;
@@ -2427,11 +2512,14 @@ async function doZip(floors) {
       const statusStr = { ok:'OK', ng:'NG', check:'確認中', none:'未設定' }[pin.status] || '未設定';
       const folderName = `ピン${pin.num}_${statusStr}`;
       const pinFolder = floorFolder.folder(folderName);
+      const filenamesJpg = buildPhotoFilenames(pin, 'jpg');
+      const filenamesPng = buildPhotoFilenames(pin, 'png');
 
       pin.photos.forEach((dataUrl, i) => {
         const base64 = dataUrl.split(',')[1];
         const ext = dataUrl.includes('image/png') ? 'png' : 'jpg';
-        pinFolder.file(`${String(i+1).padStart(2,'0')}.${ext}`, base64, { base64: true });
+        const fname = ext === 'png' ? filenamesPng[i] : filenamesJpg[i];
+        pinFolder.file(fname, base64, { base64: true });
         done++;
         const pct = Math.round(done / total * 100);
         progressBar.style.width = pct + '%';
