@@ -204,6 +204,21 @@
   /* ドラッグ中だけスクロールを止める */
   #pin-photos.reordering { touch-action: none; }
   #pin-photos.reordering * { touch-action: none; }
+
+  /* ドロップ位置インジケータ */
+  .drop-indicator {
+    height: 4px;
+    background: var(--accent);
+    border-radius: 2px;
+    margin: -2px 0;
+    box-shadow: 0 0 8px var(--accent), 0 0 16px rgba(233,69,96,0.6);
+    animation: dropPulse 0.6s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  @keyframes dropPulse {
+    from { opacity: 0.7; transform: scaleX(0.95); }
+    to { opacity: 1; transform: scaleX(1); }
+  }
   .photo-thumb.drag-ghost {
     position: fixed; left: 0; top: 0;
     z-index: 200;
@@ -1771,12 +1786,14 @@ const REORDER = {
   startY: 0,
   pointerId: null,
   draggingIndex: -1,
+  dropTargetIndex: -1, // ドロップ予定位置 (0..N) / -1=未確定
   ghost: null,
+  indicator: null,
   ghostOffsetX: 0,
   ghostOffsetY: 0,
   origThumb: null,
   PRESS_MS: 500,
-  MOVE_TOLERANCE: 10, // 長押し成立前の許容ズレ
+  MOVE_TOLERANCE: 10,
 };
 
 function isReorderEligible() {
@@ -1845,6 +1862,7 @@ function onReorderPointerDown(e, thumb, index) {
 function startReorderDrag(thumb, index, x, y) {
   REORDER.draggingIndex = index;
   REORDER.origThumb = thumb;
+  REORDER.dropTargetIndex = -1; // ドロップ予定の挿入位置 (0..N)
   thumb.classList.remove('long-press-active');
   thumb.classList.add('dragging');
   const container = document.getElementById('pin-photos');
@@ -1865,11 +1883,16 @@ function startReorderDrag(thumb, index, x, y) {
   REORDER.ghostOffsetY = y - rect.top;
   moveGhost(x, y);
 
+  // ドロップ位置インジケータを作成（DOMに1つだけ、移動時に位置を変える）
+  const indicator = document.createElement('div');
+  indicator.className = 'drop-indicator';
+  REORDER.indicator = indicator;
+  // 初期はどこにも挿入しない（移動時に決定）
+
   // pointerイベントを全画面で受け取る
   window.addEventListener('pointermove', onReorderPointerMove);
   window.addEventListener('pointerup', onReorderPointerUp);
   window.addEventListener('pointercancel', onReorderPointerUp);
-  // body のスクロールも一時的に止めたいが、モーダル内のスクロールは別なので個別対応
 }
 
 function moveGhost(x, y) {
@@ -1883,45 +1906,47 @@ function onReorderPointerMove(e) {
   if (REORDER.pointerId !== e.pointerId) return;
   e.preventDefault();
   moveGhost(e.clientX, e.clientY);
-  // 重なってるサムネを判定 → その位置に並び替え
+
   const container = document.getElementById('pin-photos');
   if (!container) return;
+
+  // 全サムネ（ゴースト除く、ドラッグ中の元サムネは含む）
   const thumbs = [...container.querySelectorAll('.photo-thumb:not(.drag-ghost)')];
-  let targetIndex = -1;
+  if (thumbs.length === 0) return;
+
+  // 指のY座標から「挿入位置 = 0..thumbs.length」を決定
+  // 各サムネを「上半分=その前に挿入, 下半分=その後に挿入」で判定
+  let insertAt = -1;
   for (let i = 0; i < thumbs.length; i++) {
     const r = thumbs[i].getBoundingClientRect();
-    if (e.clientY >= r.top && e.clientY <= r.bottom) {
-      // 上半分なら i の前に、下半分なら i の後ろに
-      const mid = r.top + r.height / 2;
-      targetIndex = e.clientY < mid ? i : i + 1;
+    const mid = r.top + r.height / 2;
+    if (e.clientY < mid) {
+      insertAt = i;
       break;
     }
   }
-  // 範囲外の場合: 上端なら先頭、下端なら末尾
-  if (targetIndex === -1) {
-    if (thumbs.length > 0) {
-      const firstR = thumbs[0].getBoundingClientRect();
-      const lastR = thumbs[thumbs.length - 1].getBoundingClientRect();
-      if (e.clientY < firstR.top) targetIndex = 0;
-      else if (e.clientY > lastR.bottom) targetIndex = thumbs.length;
+  if (insertAt === -1) insertAt = thumbs.length;
+
+  // 元の位置の直前/直後は「同じ位置」なのでインジケータを隠す
+  const originIdx = REORDER.draggingIndex;
+  const isSamePosition = (insertAt === originIdx || insertAt === originIdx + 1);
+
+  if (isSamePosition) {
+    if (REORDER.indicator.parentNode) {
+      REORDER.indicator.parentNode.removeChild(REORDER.indicator);
     }
+    REORDER.dropTargetIndex = -1;
+    return;
   }
-  if (targetIndex === -1) return;
 
-  // 配列順の暫定移動: DOM上でだけ並び替え（save前のプレビュー）
-  // photos配列の実体は最終確定時に更新する
-  const currentIdx = thumbs.indexOf(REORDER.origThumb);
-  if (currentIdx === -1) return;
-  // 同じ位置にドロップしようとしている場合はスキップ
-  let insertIdx = targetIndex;
-  if (insertIdx > currentIdx) insertIdx--; // 自分を抜いてからの位置補正
-  if (insertIdx === currentIdx) return;
-
-  // 並び替えをDOMに反映
-  const movingEl = REORDER.origThumb;
-  const refEl = thumbs[targetIndex] || null;
-  if (refEl === movingEl) return;
-  container.insertBefore(movingEl, refEl);
+  REORDER.dropTargetIndex = insertAt;
+  // インジケータを正しい位置に配置
+  const refEl = thumbs[insertAt] || null;
+  if (refEl) {
+    container.insertBefore(REORDER.indicator, refEl);
+  } else {
+    container.appendChild(REORDER.indicator);
+  }
 }
 
 function onReorderPointerUp(e) {
@@ -1932,7 +1957,7 @@ function onReorderPointerUp(e) {
   window.removeEventListener('pointerup', onReorderPointerUp);
   window.removeEventListener('pointercancel', onReorderPointerUp);
 
-  // 直後のclickイベントを抑制 (ドラッグ後の意図しないviewer起動を防ぐ)
+  // 直後のclickイベントを抑制
   const suppressClick = (ev) => {
     ev.stopPropagation();
     ev.preventDefault();
@@ -1943,18 +1968,28 @@ function onReorderPointerUp(e) {
     window.removeEventListener('click', suppressClick, true);
   }, 300);
 
-  // 現在のDOM順から新しい配列順を決定
-  const container = document.getElementById('pin-photos');
-  const finalThumbs = [...container.querySelectorAll('.photo-thumb:not(.drag-ghost)')];
-  const newOrder = finalThumbs.map(t => parseInt(t.dataset.index, 10));
+  const originIdx = REORDER.draggingIndex;
+  const targetIdx = REORDER.dropTargetIndex;
 
-  // pin.photos / pin.photoDates を新順序で並び替え
-  if (_editingPin && newOrder.length === _editingPin.photos.length) {
-    const newPhotos = newOrder.map(i => _editingPin.photos[i]);
-    const oldDates = _editingPin.photoDates || [];
-    const newDates = newOrder.map(i => oldDates[i]);
-    _editingPin.photos = newPhotos;
-    _editingPin.photoDates = newDates;
+  // 並び替えを配列に反映 (targetIdx が有効なときのみ)
+  if (_editingPin && targetIdx !== -1 && targetIdx !== originIdx && targetIdx !== originIdx + 1) {
+    // photos配列の並び替え: originIdxの要素をtargetIdxの位置に移動
+    // ※ targetIdx は「移動前のインデックスで考えた挿入位置」(0..N)
+    const photos = _editingPin.photos;
+    const dates = _editingPin.photoDates || [];
+
+    const movedPhoto = photos[originIdx];
+    const movedDate = dates[originIdx];
+
+    // 削除
+    photos.splice(originIdx, 1);
+    if (dates.length > 0) dates.splice(originIdx, 1);
+
+    // 挿入位置の補正: originより後ろに挿入する場合は-1
+    const adjustedTarget = targetIdx > originIdx ? targetIdx - 1 : targetIdx;
+    photos.splice(adjustedTarget, 0, movedPhoto);
+    if (dates.length >= 0) dates.splice(adjustedTarget, 0, movedDate);
+
     save();
   }
 
@@ -1963,6 +1998,10 @@ function onReorderPointerUp(e) {
     REORDER.ghost.remove();
     REORDER.ghost = null;
   }
+  if (REORDER.indicator && REORDER.indicator.parentNode) {
+    REORDER.indicator.parentNode.removeChild(REORDER.indicator);
+  }
+  REORDER.indicator = null;
   if (REORDER.origThumb) {
     REORDER.origThumb.classList.remove('dragging', 'long-press-active');
     REORDER.origThumb = null;
@@ -1970,9 +2009,10 @@ function onReorderPointerUp(e) {
   const container2 = document.getElementById('pin-photos');
   if (container2) container2.classList.remove('reordering');
   REORDER.draggingIndex = -1;
+  REORDER.dropTargetIndex = -1;
   REORDER.pointerId = null;
 
-  // インデックスとファイル名連番を更新するため再描画
+  // 再描画 (インデックス番号とファイル名連番を更新)
   if (_editingPin) renderPinPhotos(_editingPin);
 }
 
