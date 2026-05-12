@@ -194,7 +194,43 @@
   .photo-thumb {
     border-radius: 8px; overflow: hidden; background: var(--surface2);
     position: relative; cursor: pointer;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+    -webkit-touch-callout: none;
   }
+  .photo-thumb.dragging {
+    opacity: 0.4;
+    transform: scale(0.96);
+  }
+  /* ドラッグ中だけスクロールを止める */
+  #pin-photos.reordering { touch-action: none; }
+  #pin-photos.reordering * { touch-action: none; }
+  .photo-thumb.drag-ghost {
+    position: fixed; left: 0; top: 0;
+    z-index: 200;
+    width: var(--ghost-w, 200px);
+    pointer-events: none;
+    opacity: 0.9;
+    transform: scale(1.04) rotate(0.5deg);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    border: 2px solid var(--accent);
+    transition: none;
+  }
+  .photo-thumb.drag-ghost .del-photo,
+  .photo-thumb.drag-ghost .save-photo,
+  .photo-thumb.drag-ghost .photo-check { display: none; }
+  .drag-handle-hint {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.7); color: #fff;
+    padding: 4px 10px; border-radius: 12px; font-size: 11px;
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 2;
+  }
+  .photo-thumb.long-press-active {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 2px rgba(233,69,96,0.5);
+  }
+  .photo-thumb.long-press-active .drag-handle-hint { opacity: 1; }
   .photo-thumb img { width: 100%; height: auto; display: block; max-height: 400px; object-fit: contain; background: #000; }
   .photo-thumb .del-photo {
     position: absolute; top: 8px; right: 8px;
@@ -1712,6 +1748,7 @@ function renderPinPhotos(pin) {
       <button class="save-photo" onclick="event.stopPropagation(); savePhotoToLibrary(${i})">📱 保存</button>
       <button class="del-photo" onclick="event.stopPropagation(); deletePhoto(${i})">✕</button>
       <div class="photo-idx">#${i+1}</div>
+      <div class="drag-handle-hint">並び替え中...</div>
     `;
     thumb.querySelector('img').onclick = () => {
       if (selectState.enabled) {
@@ -1720,10 +1757,223 @@ function renderPinPhotos(pin) {
         openPhotoViewer(i);
       }
     };
+    bindReorderHandlers(thumb, i);
     container.appendChild(thumb);
   });
   refreshPinJumpButtonsSoon();
   updateSelectModeUI();
+}
+
+// ========== PHOTO REORDER (long-press drag) ==========
+const REORDER = {
+  pressTimer: null,
+  startX: 0,
+  startY: 0,
+  pointerId: null,
+  draggingIndex: -1,
+  ghost: null,
+  ghostOffsetX: 0,
+  ghostOffsetY: 0,
+  origThumb: null,
+  PRESS_MS: 500,
+  MOVE_TOLERANCE: 10, // 長押し成立前の許容ズレ
+};
+
+function isReorderEligible() {
+  // 選択モード中は長押し→並び替え無効
+  if (selectState.enabled) return false;
+  return true;
+}
+
+function bindReorderHandlers(thumb, index) {
+  thumb.addEventListener('pointerdown', (e) => onReorderPointerDown(e, thumb, index));
+}
+
+function onReorderPointerDown(e, thumb, index) {
+  if (!isReorderEligible()) return;
+  // 削除ボタン・保存ボタン・チェックボックスの上では発動しない
+  const target = e.target;
+  if (target.closest('.del-photo, .save-photo, .photo-check')) return;
+  // タッチ/ペンのみ対象（マウスはオプション扱い）
+  // ここではpointerType問わず受け付ける
+
+  REORDER.startX = e.clientX;
+  REORDER.startY = e.clientY;
+  REORDER.pointerId = e.pointerId;
+  clearTimeout(REORDER.pressTimer);
+
+  thumb.classList.add('long-press-active');
+
+  REORDER.pressTimer = setTimeout(() => {
+    startReorderDrag(thumb, index, e.clientX, e.clientY);
+  }, REORDER.PRESS_MS);
+
+  // 長押し前のキャンセル条件
+  const cancelHandler = () => {
+    if (REORDER.draggingIndex === -1) {
+      clearTimeout(REORDER.pressTimer);
+      thumb.classList.remove('long-press-active');
+    }
+    window.removeEventListener('pointerup', cancelHandler);
+    window.removeEventListener('pointercancel', cancelHandler);
+  };
+  window.addEventListener('pointerup', cancelHandler);
+  window.addEventListener('pointercancel', cancelHandler);
+
+  // ポインタが大きく動いたら長押しキャンセル（スクロール意図）
+  const moveHandler = (mv) => {
+    if (REORDER.draggingIndex !== -1) return; // すでにドラッグ中
+    const dx = mv.clientX - REORDER.startX;
+    const dy = mv.clientY - REORDER.startY;
+    if (Math.hypot(dx, dy) > REORDER.MOVE_TOLERANCE) {
+      clearTimeout(REORDER.pressTimer);
+      thumb.classList.remove('long-press-active');
+      window.removeEventListener('pointermove', moveHandler);
+    }
+  };
+  window.addEventListener('pointermove', moveHandler);
+  // クリーンアップ
+  const cleanup = () => {
+    window.removeEventListener('pointermove', moveHandler);
+    window.removeEventListener('pointerup', cleanup);
+    window.removeEventListener('pointercancel', cleanup);
+  };
+  window.addEventListener('pointerup', cleanup);
+  window.addEventListener('pointercancel', cleanup);
+}
+
+function startReorderDrag(thumb, index, x, y) {
+  REORDER.draggingIndex = index;
+  REORDER.origThumb = thumb;
+  thumb.classList.remove('long-press-active');
+  thumb.classList.add('dragging');
+  const container = document.getElementById('pin-photos');
+  if (container) container.classList.add('reordering');
+
+  // バイブレーション（対応ブラウザのみ）
+  try { if (navigator.vibrate) navigator.vibrate(15); } catch(_) {}
+
+  // ゴースト要素を作成: 元サムネのクローン
+  const rect = thumb.getBoundingClientRect();
+  const ghost = thumb.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  ghost.classList.remove('dragging', 'long-press-active', 'selected');
+  ghost.style.setProperty('--ghost-w', rect.width + 'px');
+  document.body.appendChild(ghost);
+  REORDER.ghost = ghost;
+  REORDER.ghostOffsetX = x - rect.left;
+  REORDER.ghostOffsetY = y - rect.top;
+  moveGhost(x, y);
+
+  // pointerイベントを全画面で受け取る
+  window.addEventListener('pointermove', onReorderPointerMove);
+  window.addEventListener('pointerup', onReorderPointerUp);
+  window.addEventListener('pointercancel', onReorderPointerUp);
+  // body のスクロールも一時的に止めたいが、モーダル内のスクロールは別なので個別対応
+}
+
+function moveGhost(x, y) {
+  if (!REORDER.ghost) return;
+  REORDER.ghost.style.left = (x - REORDER.ghostOffsetX) + 'px';
+  REORDER.ghost.style.top = (y - REORDER.ghostOffsetY) + 'px';
+}
+
+function onReorderPointerMove(e) {
+  if (REORDER.draggingIndex === -1) return;
+  if (REORDER.pointerId !== e.pointerId) return;
+  e.preventDefault();
+  moveGhost(e.clientX, e.clientY);
+  // 重なってるサムネを判定 → その位置に並び替え
+  const container = document.getElementById('pin-photos');
+  if (!container) return;
+  const thumbs = [...container.querySelectorAll('.photo-thumb:not(.drag-ghost)')];
+  let targetIndex = -1;
+  for (let i = 0; i < thumbs.length; i++) {
+    const r = thumbs[i].getBoundingClientRect();
+    if (e.clientY >= r.top && e.clientY <= r.bottom) {
+      // 上半分なら i の前に、下半分なら i の後ろに
+      const mid = r.top + r.height / 2;
+      targetIndex = e.clientY < mid ? i : i + 1;
+      break;
+    }
+  }
+  // 範囲外の場合: 上端なら先頭、下端なら末尾
+  if (targetIndex === -1) {
+    if (thumbs.length > 0) {
+      const firstR = thumbs[0].getBoundingClientRect();
+      const lastR = thumbs[thumbs.length - 1].getBoundingClientRect();
+      if (e.clientY < firstR.top) targetIndex = 0;
+      else if (e.clientY > lastR.bottom) targetIndex = thumbs.length;
+    }
+  }
+  if (targetIndex === -1) return;
+
+  // 配列順の暫定移動: DOM上でだけ並び替え（save前のプレビュー）
+  // photos配列の実体は最終確定時に更新する
+  const currentIdx = thumbs.indexOf(REORDER.origThumb);
+  if (currentIdx === -1) return;
+  // 同じ位置にドロップしようとしている場合はスキップ
+  let insertIdx = targetIndex;
+  if (insertIdx > currentIdx) insertIdx--; // 自分を抜いてからの位置補正
+  if (insertIdx === currentIdx) return;
+
+  // 並び替えをDOMに反映
+  const movingEl = REORDER.origThumb;
+  const refEl = thumbs[targetIndex] || null;
+  if (refEl === movingEl) return;
+  container.insertBefore(movingEl, refEl);
+}
+
+function onReorderPointerUp(e) {
+  if (REORDER.draggingIndex === -1) return;
+  if (REORDER.pointerId !== e.pointerId) return;
+
+  window.removeEventListener('pointermove', onReorderPointerMove);
+  window.removeEventListener('pointerup', onReorderPointerUp);
+  window.removeEventListener('pointercancel', onReorderPointerUp);
+
+  // 直後のclickイベントを抑制 (ドラッグ後の意図しないviewer起動を防ぐ)
+  const suppressClick = (ev) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    window.removeEventListener('click', suppressClick, true);
+  };
+  window.addEventListener('click', suppressClick, true);
+  setTimeout(() => {
+    window.removeEventListener('click', suppressClick, true);
+  }, 300);
+
+  // 現在のDOM順から新しい配列順を決定
+  const container = document.getElementById('pin-photos');
+  const finalThumbs = [...container.querySelectorAll('.photo-thumb:not(.drag-ghost)')];
+  const newOrder = finalThumbs.map(t => parseInt(t.dataset.index, 10));
+
+  // pin.photos / pin.photoDates を新順序で並び替え
+  if (_editingPin && newOrder.length === _editingPin.photos.length) {
+    const newPhotos = newOrder.map(i => _editingPin.photos[i]);
+    const oldDates = _editingPin.photoDates || [];
+    const newDates = newOrder.map(i => oldDates[i]);
+    _editingPin.photos = newPhotos;
+    _editingPin.photoDates = newDates;
+    save();
+  }
+
+  // クリーンアップ
+  if (REORDER.ghost) {
+    REORDER.ghost.remove();
+    REORDER.ghost = null;
+  }
+  if (REORDER.origThumb) {
+    REORDER.origThumb.classList.remove('dragging', 'long-press-active');
+    REORDER.origThumb = null;
+  }
+  const container2 = document.getElementById('pin-photos');
+  if (container2) container2.classList.remove('reordering');
+  REORDER.draggingIndex = -1;
+  REORDER.pointerId = null;
+
+  // インデックスとファイル名連番を更新するため再描画
+  if (_editingPin) renderPinPhotos(_editingPin);
 }
 
 // ========== PHOTO SELECT MODE ==========
