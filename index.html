@@ -1893,6 +1893,12 @@ function moveThumb(index, direction) {
   if (newIndex >= photos.length) newIndex = photos.length - 1;
   if (newIndex === index) return;
 
+  // 並び替え前: 動かすサムネの画面上の位置を記録
+  const container = document.getElementById('pin-photos');
+  const scroller = getPinModalScrollEl();
+  const moving = container ? [...container.querySelectorAll('.photo-thumb')][index] : null;
+  const topBefore = moving ? moving.getBoundingClientRect().top : null;
+
   // 配列の並び替え
   const [photo] = photos.splice(index, 1);
   photos.splice(newIndex, 0, photo);
@@ -1902,27 +1908,35 @@ function moveThumb(index, direction) {
   }
   save();
 
-  // DOM を直接更新 (再描画しないのでスクロール位置は完全に維持される)
-  const container = document.getElementById('pin-photos');
-  if (!container) return;
+  // DOM を直接更新
+  if (!container || !moving) return;
   const allThumbs = [...container.querySelectorAll('.photo-thumb')];
-  const moving = allThumbs[index];
-  if (!moving) return;
 
-  // 移動先位置にinsertBefore
   if (newIndex >= allThumbs.length - 1) {
-    // 末尾へ
     container.appendChild(moving);
   } else {
-    // newIndex の位置に挿入
-    // newIndex > index の場合: 自分を抜いた後の newIndex 番目 = 元の newIndex+1 番目
     const ref = newIndex > index ? allThumbs[newIndex + 1] : allThumbs[newIndex];
     container.insertBefore(moving, ref);
   }
 
-  // 各サムネの dataset.index と表示内容を更新 (#番号、矢印有効/無効、show-arrows)
   activeReorderIndex = newIndex;
   updateThumbIndices();
+
+  // スクロール追従: 動かしたサムネが画面上の同じ位置に来るよう調整
+  if (scroller && topBefore !== null) {
+    const topAfter = moving.getBoundingClientRect().top;
+    const sr = scroller.getBoundingClientRect();
+    const diff = topAfter - topBefore;
+    if (diff !== 0) {
+      // diff > 0 (移動後の方が下にある) → 画面を下にスクロールして追いつく
+      let target = scroller.scrollTop + diff;
+      // スクロール範囲外にならないようクランプ
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      if (target < 0) target = 0;
+      if (target > max) target = max;
+      scroller.scrollTo({ top: target, behavior: 'smooth' });
+    }
+  }
 }
 
 // renderPinPhotosを全部やり直さず、各サムネのインデックス表示と矢印のdisabled状態だけ更新
