@@ -66,6 +66,18 @@
   .folder-tab.active { background: rgba(233,69,96,0.2); border-color: var(--accent); color: var(--accent); }
   .folder-tab.add-btn { border-style: dashed; color: var(--text2); }
   .folder-tab .folder-del { font-size: 10px; opacity: 0.5; margin-left: 2px; }
+  .folder-tab.folder-back {
+    background: rgba(100,150,255,0.15);
+    border-color: rgba(100,150,255,0.4);
+    color: rgba(150,200,255,0.95);
+    font-weight: 600;
+  }
+  .folder-tab.folder-back:active { background: rgba(100,150,255,0.3); }
+  .folder-tab.folder-crumb {
+    background: rgba(255,255,255,0.04);
+    border: 1px dashed rgba(255,255,255,0.2);
+    color: var(--text2);
+  }
 
   /* FLOOR TABS */
   #floor-tabs {
@@ -787,6 +799,36 @@
   </div>
 </div>
 
+<!-- Folder Manager Modal -->
+<div class="modal-overlay" id="folder-manager-modal">
+  <div class="modal" style="max-height: 92vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📁 フォルダ一覧</div>
+    <div id="folder-manager-list" style="max-height: 70vh; overflow-y: auto;"></div>
+    <button class="btn-danger" onclick="closeModal('folder-manager-modal')">閉じる</button>
+  </div>
+</div>
+
+<!-- Folder Edit Modal (リネーム + 色 + 親フォルダ変更) -->
+<div class="modal-overlay" id="folder-edit-modal">
+  <div class="modal" style="max-height: 92vh; overflow-y: auto;">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="folder-edit-title">✏️ フォルダ編集</div>
+
+    <div style="font-size:12px; color:var(--text2); margin-bottom:6px;">フォルダ名</div>
+    <input class="input-field" type="text" autocomplete="off" id="folder-edit-name" placeholder="フォルダ名">
+
+    <div style="font-size:12px; color:var(--text2); margin: 14px 0 6px;">色</div>
+    <div id="folder-edit-colors" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+
+    <div style="font-size:12px; color:var(--text2); margin: 14px 0 6px;">親フォルダ (移動先)</div>
+    <select class="input-field" id="folder-edit-parent" style="width:100%;"></select>
+
+    <button class="btn-primary" onclick="saveFolderEdit()" style="margin-top:14px;">保存</button>
+    <button class="btn-danger" onclick="closeModal('folder-edit-modal')">キャンセル</button>
+  </div>
+</div>
+
 <!-- Rename Floor Modal -->
 <div class="modal-overlay" id="rename-floor-modal">
   <div class="modal">
@@ -1012,7 +1054,7 @@
 <script>
 // ========== STATE ==========
 let state = {
-  folders: [], // [{id, name, order}]
+  folders: [], // [{id, name, order, parentId, color}]  parentId=null はルート直下
   floors: [],  // [{id, name, folderId, order, imageData, pins:[]}]
   currentFolderId: null,
   currentFloorId: null,
@@ -1096,7 +1138,11 @@ async function load() {
       state.floors = floors;
       // 古いデータにorderがなければ付与
       state.floors.forEach((f,i) => { if (f.order===undefined) f.order=i; });
-      state.folders.forEach((f,i) => { if (f.order===undefined) f.order=i; });
+      state.folders.forEach((f,i) => {
+        if (f.order===undefined) f.order=i;
+        if (f.parentId===undefined) f.parentId = null;
+        if (f.color===undefined) f.color = null;
+      });
 
       return;
     }
@@ -1128,7 +1174,13 @@ async function init() {
   fixOrphanedFloors();
   await save(); // 修正したfolderIdを保存
   if (state.folders.length > 0) {
-    state.currentFolderId = state.folders.sort((a,b)=>a.order-b.order)[0].id;
+    const roots = getChildFolders(null).sort((a,b)=>(a.order||0)-(b.order||0));
+    if (roots.length > 0) {
+      state.currentFolderId = roots[0].id;
+    } else {
+      // どこにもrootがない不正な状態 -> 最初のフォルダ
+      state.currentFolderId = state.folders[0].id;
+    }
   }
   renderFolderTabs();
   renderFloorTabs();
@@ -1173,7 +1225,17 @@ function showFolderModal() {
 function saveFolder() {
   const name = document.getElementById('folder-name-input').value.trim();
   if (!name) { alert('フォルダ名を入力してください'); return; }
-  const folder = { id: 'folder_' + Date.now(), name, order: state.folders.length };
+  // 現在ブラウズしている階層に新規作成
+  const parentId = getDisplayedParentId();
+  const siblings = getChildFolders(parentId);
+  const maxOrder = siblings.reduce((m, f) => Math.max(m, f.order || 0), -1);
+  const folder = {
+    id: 'folder_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    name,
+    order: maxOrder + 1,
+    parentId: parentId,
+    color: null,
+  };
   state.folders.push(folder);
   save();
   state.currentFolderId = folder.id;
@@ -1184,6 +1246,9 @@ function saveFolder() {
 
 function selectFolder(id) {
   state.currentFolderId = id;
+  // ブラウズ階層を選択されたフォルダの親に合わせる (一覧画面等から呼ばれた時用)
+  const f = getFolder(id);
+  if (f) _browsingParentId = f.parentId || null;
   const floors = getFloorsInFolder(id).sort((a,b)=>(a.order||0)-(b.order||0));
   renderFolderTabs();
   renderFloorTabs();
@@ -1196,73 +1261,148 @@ function selectFolder(id) {
   }
 }
 
+function getChildFolders(parentId) {
+  return state.folders.filter(f => (f.parentId || null) === (parentId || null));
+}
+
+function getFolder(id) {
+  return state.folders.find(f => f.id === id) || null;
+}
+
+// 現在のフォルダから見て、ブラウズ中の親フォルダ
+// (currentFolderId が深い階層の場合に、タブ表示する基準フォルダ)
+let _browsingParentId = null;
+
+// 「ブラウズしているフォルダ」を決定する関数
+// 動作: currentFolderIdを基準に、その直下のサブフォルダをタブ表示する
+//       currentFolderId自身に子フォルダがあるならそれをタブに、なければ親階層を遡る
+function getDisplayedParentId() {
+  if (_browsingParentId !== null) return _browsingParentId;
+  // 現在のフォルダの親フォルダを表示の基準とする
+  const cur = getFolder(state.currentFolderId);
+  return cur ? (cur.parentId || null) : null;
+}
+
+function setBrowsingParent(parentId) {
+  _browsingParentId = parentId;
+  // 親フォルダ自体に紐づく図面があれば、現在フォルダをそれに
+  const children = getChildFolders(parentId).sort((a,b)=>(a.order||0)-(b.order||0));
+  if (children.length > 0) {
+    selectFolder(children[0].id);
+  } else {
+    state.currentFolderId = null;
+    renderFolderTabs();
+    renderFloorTabs();
+    showNoPlan();
+    updateSummary();
+  }
+}
+
+function getBreadcrumb(folderId) {
+  const path = [];
+  let cur = getFolder(folderId);
+  while (cur) {
+    path.unshift(cur);
+    cur = cur.parentId ? getFolder(cur.parentId) : null;
+  }
+  return path;
+}
+
 function renderFolderTabs() {
   const tabs = document.getElementById('folder-tabs');
   tabs.innerHTML = '';
-  const sorted = [...state.folders].sort((a,b)=>a.order-b.order);
 
-  sorted.forEach(folder => {
+  // 表示する階層を決定
+  const displayedParent = getDisplayedParentId();
+
+  // 親階層に戻るボタン (ルートでなければ表示)
+  if (displayedParent !== null) {
+    const backBtn = document.createElement('div');
+    backBtn.className = 'folder-tab folder-back';
+    backBtn.innerHTML = '<span style="cursor:pointer">⬆ 上へ</span>';
+    backBtn.onclick = () => {
+      const parent = getFolder(displayedParent);
+      _browsingParentId = parent ? (parent.parentId || null) : null;
+      // 親階層を表示するために、その階層の最初のフォルダを選択
+      const siblings = getChildFolders(_browsingParentId).sort((a,b)=>(a.order||0)-(b.order||0));
+      if (siblings.length > 0) {
+        selectFolder(siblings[0].id);
+      } else {
+        renderFolderTabs(); renderFloorTabs(); showNoPlan(); updateSummary();
+      }
+    };
+    tabs.appendChild(backBtn);
+  }
+
+  // パンくず表示（2階層以上の時のみ）
+  if (displayedParent !== null) {
+    const parent = getFolder(displayedParent);
+    if (parent) {
+      const crumb = document.createElement('div');
+      crumb.className = 'folder-tab folder-crumb';
+      crumb.style.background = 'rgba(255,255,255,0.05)';
+      crumb.style.borderStyle = 'dashed';
+      crumb.style.pointerEvents = 'none';
+      const path = getBreadcrumb(parent.id).map(f => f.name).join(' / ');
+      crumb.innerHTML = `<span style="font-size:11px; color:var(--text2)">📂 ${path}</span>`;
+      tabs.appendChild(crumb);
+    }
+  }
+
+  // 現在の階層のフォルダのみ表示
+  const visible = getChildFolders(displayedParent).sort((a,b)=>(a.order||0)-(b.order||0));
+
+  visible.forEach(folder => {
     const tab = document.createElement('div');
     tab.className = 'folder-tab' + (folder.id === state.currentFolderId ? ' active' : '');
     tab.dataset.folderId = folder.id;
 
+    // 色付け
+    if (folder.color) {
+      tab.style.borderColor = folder.color;
+      if (folder.id === state.currentFolderId) {
+        tab.style.background = folder.color + '33'; // 20% 透明度
+        tab.style.color = folder.color;
+      }
+    }
+
+    // サブフォルダがあるなら表示用バッジ
+    const childCount = getChildFolders(folder.id).length;
+    const subIcon = childCount > 0 ? ' 📁' : '';
+
     const label = document.createElement('span');
-    label.textContent = '📁 ' + folder.name;
+    label.textContent = '📁 ' + folder.name + subIcon;
     label.style.cursor = 'pointer';
 
-    label.addEventListener('click', () => selectFolder(folder.id));
-    label.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); selectFolder(folder.id); });
-
-    const delBtn = document.createElement('span');
-    delBtn.className = 'folder-del';
-    delBtn.textContent = '✕';
-    delBtn.style.cursor = 'pointer';
-    delBtn.addEventListener('click', e => { e.stopPropagation(); confirmDeleteFolder(folder.id); });
-    delBtn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); confirmDeleteFolder(folder.id); });
+    label.addEventListener('click', () => {
+      if (folder.id === state.currentFolderId && childCount > 0) {
+        // 既にアクティブなフォルダを再タップ → そのフォルダの子階層へ
+        _browsingParentId = folder.id;
+        const children = getChildFolders(folder.id).sort((a,b)=>(a.order||0)-(b.order||0));
+        if (children.length > 0) selectFolder(children[0].id);
+        else { state.currentFolderId = null; renderFolderTabs(); renderFloorTabs(); showNoPlan(); updateSummary(); }
+      } else {
+        selectFolder(folder.id);
+      }
+    });
 
     tab.appendChild(label);
-    tab.appendChild(delBtn);
     tabs.appendChild(tab);
-
-    setupFolderDrag(tab, folder);
   });
 
+  // 新規フォルダ追加ボタン
   const addBtn = document.createElement('div');
   addBtn.className = 'folder-tab add-btn';
   addBtn.textContent = '＋ フォルダ';
   addBtn.onclick = showFolderModal;
   tabs.appendChild(addBtn);
-}
 
-function setupFolderDrag(el, folder) {
-  let longTimer = null, dragging = false, startX = 0, clone = null;
-  el.addEventListener('touchstart', e => {
-    startX = e.touches[0].clientX;
-    longTimer = setTimeout(() => {
-      dragging = true;
-      el.style.opacity = '0.5';
-    }, 600);
-  }, { passive: true });
-  el.addEventListener('touchmove', e => {
-    if (!dragging) { clearTimeout(longTimer); return; }
-    const x = e.touches[0].clientX;
-    const tabs = document.getElementById('folder-tabs');
-    const children = [...tabs.querySelectorAll('.folder-tab:not(.add-btn)')];
-    children.forEach(c => {
-      const rect = c.getBoundingClientRect();
-      if (x > rect.left && x < rect.right && c !== el) {
-        const otherFolder = state.folders.find(f => f.id === c.dataset.folderId);
-        if (otherFolder) {
-          const tmp = folder.order; folder.order = otherFolder.order; otherFolder.order = tmp;
-          renderFolderTabs();
-        }
-      }
-    });
-  }, { passive: true });
-  el.addEventListener('touchend', () => {
-    clearTimeout(longTimer);
-    if (dragging) { dragging = false; el.style.opacity = ''; save(); }
-  });
+  // フォルダ一覧画面を開くボタン
+  const manageBtn = document.createElement('div');
+  manageBtn.className = 'folder-tab add-btn';
+  manageBtn.textContent = '⚙ 一覧';
+  manageBtn.onclick = () => openFolderManager();
+  tabs.appendChild(manageBtn);
 }
 
 function renameFolder(id) {
@@ -1288,13 +1428,222 @@ function saveRenameFolder() {
 function confirmDeleteFolder(id) {
   const folder = state.folders.find(f => f.id === id);
   if (!folder) return;
-  const floorCount = getFloorsInFolder(id).length;
-  if (!confirm(`「${folder.name}」を削除しますか？\n中の図面${floorCount}件もすべて削除されます。`)) return;
-  state.floors = state.floors.filter(f => f.folderId !== id);
-  state.folders = state.folders.filter(f => f.id !== id);
+  // 再帰的に子孫フォルダのIDを集める
+  const collectIds = (parentId) => {
+    let ids = [parentId];
+    getChildFolders(parentId).forEach(c => { ids = ids.concat(collectIds(c.id)); });
+    return ids;
+  };
+  const allIds = collectIds(id);
+  const allFloorCount = state.floors.filter(f => allIds.includes(f.folderId)).length;
+  const subFolderCount = allIds.length - 1;
+  let msg = `「${folder.name}」を削除しますか？\n`;
+  if (subFolderCount > 0) msg += `中のサブフォルダ ${subFolderCount} 個と、`;
+  msg += `図面 ${allFloorCount} 件もすべて削除されます。`;
+  if (!confirm(msg)) return;
+
+  state.floors = state.floors.filter(f => !allIds.includes(f.folderId));
+  state.folders = state.folders.filter(f => !allIds.includes(f.id));
   save();
-  if (state.folders.length > 0) selectFolder(state.folders[0].id);
+  // 削除後の表示
+  _browsingParentId = null;
+  const rootFolders = getChildFolders(null).sort((a,b)=>(a.order||0)-(b.order||0));
+  if (rootFolders.length > 0) selectFolder(rootFolders[0].id);
   else { state.currentFolderId = null; state.currentFloorId = null; renderFolderTabs(); renderFloorTabs(); showNoPlan(); }
+}
+
+// ========== FOLDER MANAGER ==========
+function openFolderManager() {
+  renderFolderManager();
+  openModal('folder-manager-modal');
+}
+
+function renderFolderManager() {
+  const list = document.getElementById('folder-manager-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  // すべてのフォルダをツリー形式で表示
+  const renderNode = (parentId, depth) => {
+    const children = getChildFolders(parentId).sort((a,b)=>(a.order||0)-(b.order||0));
+    children.forEach(folder => {
+      const row = document.createElement('div');
+      row.style.cssText = `
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px ${12 + depth * 18}px; 
+        background: var(--surface2);
+        border-radius: 8px; margin-bottom: 6px;
+        border-left: 4px solid ${folder.color || 'rgba(255,255,255,0.1)'};
+      `;
+
+      const icon = document.createElement('span');
+      icon.textContent = '📁';
+      row.appendChild(icon);
+
+      const name = document.createElement('span');
+      name.textContent = folder.name;
+      name.style.cssText = 'flex:1; font-size:14px; font-weight:500;';
+      if (folder.color) name.style.color = folder.color;
+      row.appendChild(name);
+
+      const floorCount = getFloorsInFolder(folder.id).length;
+      const childFolderCount = getChildFolders(folder.id).length;
+      const meta = document.createElement('span');
+      meta.style.cssText = 'font-size:11px; color:var(--text2);';
+      const parts = [];
+      if (childFolderCount > 0) parts.push(`📁${childFolderCount}`);
+      if (floorCount > 0) parts.push(`📄${floorCount}`);
+      meta.textContent = parts.join(' ');
+      row.appendChild(meta);
+
+      const editBtn = document.createElement('button');
+      editBtn.textContent = '⚙';
+      editBtn.style.cssText = `
+        background: var(--surface); border: 1px solid rgba(255,255,255,0.15); color: #fff;
+        width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 14px;
+      `;
+      editBtn.onclick = (e) => { e.stopPropagation(); openFolderEdit(folder.id); };
+      row.appendChild(editBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕';
+      delBtn.style.cssText = `
+        background: rgba(231,76,60,0.15); border: 1px solid var(--ng); color: var(--ng);
+        width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 14px;
+      `;
+      delBtn.onclick = (e) => { e.stopPropagation(); confirmDeleteFolder(folder.id); closeModal('folder-manager-modal'); };
+      row.appendChild(delBtn);
+
+      list.appendChild(row);
+      renderNode(folder.id, depth + 1);
+    });
+  };
+  renderNode(null, 0);
+
+  if (state.folders.length === 0) {
+    list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text2);">フォルダがまだありません</div>';
+  }
+}
+
+// ========== FOLDER EDIT ==========
+let _editingFolderId = null;
+const FOLDER_COLORS = [
+  '#e94560', '#2ecc71', '#3498db', '#9b59b6',
+  '#f39c12', '#e67e22', '#1abc9c', '#e74c3c',
+  '#ffd700', '#95a5a6'
+];
+
+function openFolderEdit(folderId) {
+  const folder = getFolder(folderId);
+  if (!folder) return;
+  _editingFolderId = folderId;
+
+  document.getElementById('folder-edit-title').textContent = '✏️ ' + folder.name;
+  document.getElementById('folder-edit-name').value = folder.name;
+
+  // 色選択UI
+  const colorRow = document.getElementById('folder-edit-colors');
+  colorRow.innerHTML = '';
+  // 色なしオプション
+  const noneBtn = document.createElement('div');
+  noneBtn.style.cssText = `
+    width: 32px; height: 32px; border-radius: 50%;
+    background: transparent; border: 2px dashed rgba(255,255,255,0.3);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.5); font-size: 18px;
+  `;
+  noneBtn.textContent = '×';
+  if (!folder.color) {
+    noneBtn.style.borderColor = '#fff';
+    noneBtn.style.color = '#fff';
+  }
+  noneBtn.onclick = () => { folder.color = null; openFolderEdit(folderId); };
+  colorRow.appendChild(noneBtn);
+
+  FOLDER_COLORS.forEach(c => {
+    const btn = document.createElement('div');
+    btn.style.cssText = `
+      width: 32px; height: 32px; border-radius: 50%;
+      background: ${c}; cursor: pointer;
+      border: ${folder.color === c ? '3px solid #fff' : '2px solid rgba(255,255,255,0.1)'};
+      box-shadow: ${folder.color === c ? '0 0 8px ' + c : 'none'};
+    `;
+    btn.onclick = () => { folder.color = c; openFolderEdit(folderId); };
+    colorRow.appendChild(btn);
+  });
+
+  // 親フォルダ選択
+  const parentSel = document.getElementById('folder-edit-parent');
+  parentSel.innerHTML = '';
+  // ルート
+  const rootOpt = document.createElement('option');
+  rootOpt.value = '';
+  rootOpt.textContent = '(ルート)';
+  if (!folder.parentId) rootOpt.selected = true;
+  parentSel.appendChild(rootOpt);
+
+  // 自分自身と自分の子孫は除外（循環参照防止）
+  const descendantIds = new Set();
+  const collectDescendants = (pid) => {
+    descendantIds.add(pid);
+    getChildFolders(pid).forEach(c => collectDescendants(c.id));
+  };
+  collectDescendants(folderId);
+
+  // 階層インデント付きで全フォルダを表示
+  const renderOpts = (parentId, depth) => {
+    getChildFolders(parentId).sort((a,b)=>(a.order||0)-(b.order||0)).forEach(f => {
+      if (descendantIds.has(f.id)) return;
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = '　'.repeat(depth) + '📁 ' + f.name;
+      if (folder.parentId === f.id) opt.selected = true;
+      parentSel.appendChild(opt);
+      renderOpts(f.id, depth + 1);
+    });
+  };
+  renderOpts(null, 0);
+
+  openModal('folder-edit-modal');
+}
+
+function saveFolderEdit() {
+  const folder = getFolder(_editingFolderId);
+  if (!folder) { closeModal('folder-edit-modal'); return; }
+
+  const newName = document.getElementById('folder-edit-name').value.trim();
+  if (!newName) { alert('フォルダ名を入力してください'); return; }
+
+  const newParentId = document.getElementById('folder-edit-parent').value || null;
+  // 循環参照を防ぐ (saveFolderEditから来る場合は念のためチェック)
+  if (newParentId === _editingFolderId) {
+    alert('自分自身を親にはできません');
+    return;
+  }
+  const descendantIds = new Set();
+  const collect = (pid) => {
+    descendantIds.add(pid);
+    getChildFolders(pid).forEach(c => collect(c.id));
+  };
+  collect(_editingFolderId);
+  if (newParentId && descendantIds.has(newParentId)) {
+    alert('子フォルダの中には移動できません');
+    return;
+  }
+
+  folder.name = newName;
+  folder.parentId = newParentId;
+  // 移動先での order を末尾に
+  const siblings = getChildFolders(newParentId).filter(f => f.id !== _editingFolderId);
+  const maxOrder = siblings.reduce((m, f) => Math.max(m, f.order || 0), -1);
+  folder.order = maxOrder + 1;
+
+  save();
+  closeModal('folder-edit-modal');
+  // 一覧画面を更新
+  renderFolderManager();
+  // タブ表示も更新
+  renderFolderTabs();
 }
 
 // ========== FLOORS ==========
