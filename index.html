@@ -2473,10 +2473,10 @@ function handleCameraCapture(input) {
         document.getElementById('float-home-btn').style.display = 'flex';
       }
 
-      // 撮った写真までスクロール (連写中はスキップしてユーザーをイラつかせない)
+      // 撮った写真までスクロール (連写中はスキップ)
       if (!burstState.enabled) {
         const newIndex = pin.photos.length - 1;
-        setTimeout(() => {
+        const scrollToNew = () => {
           const container = document.getElementById('pin-photos');
           const scroller = getPinModalScrollEl();
           if (!container || !scroller) return;
@@ -2486,8 +2486,27 @@ function handleCameraCapture(input) {
           const tr = target.getBoundingClientRect();
           const sr = scroller.getBoundingClientRect();
           const delta = tr.top - sr.top - 12;
-          scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'smooth' });
-        }, 150);
+          // 画像ロード前で高さが取れていない場合スキップ
+          if (tr.height < 10) return;
+          scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'auto' });
+        };
+        // 画像load完了のタイミングが読めないため、複数回試行
+        requestAnimationFrame(() => {
+          scrollToNew();
+          // 画像が新規追加された分のサイズが確定するまで何回か試行
+          const newThumb = document.getElementById('pin-photos').querySelectorAll('.photo-thumb')[newIndex];
+          const newImg = newThumb ? newThumb.querySelector('img') : null;
+          if (newImg) {
+            if (newImg.complete) {
+              scrollToNew();
+            } else {
+              newImg.addEventListener('load', scrollToNew, { once: true });
+            }
+          }
+          setTimeout(scrollToNew, 100);
+          setTimeout(scrollToNew, 300);
+          setTimeout(scrollToNew, 600);
+        });
       }
     };
     img.src = e.target.result;
