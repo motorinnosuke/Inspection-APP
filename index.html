@@ -2399,6 +2399,22 @@ function handleCameraCapture(input) {
 
   if (!pinId) return;
 
+  // 連写モード: 画像処理の前に、まず次のカメラを起動する
+  // (Android Chromeは change イベント直後しかuser activationを認めないため)
+  let nextCameraInput = null;
+  if (burstState.enabled) {
+    try {
+      nextCameraInput = createCameraInput();
+      // 同期で click() を呼ぶ。これが change イベントから直接呼ばれている間に実行される必要がある
+      nextCameraInput.click();
+      burstState.count++;
+      updateBurstUI();
+    } catch(err) {
+      console.warn('burst chain click failed:', err);
+      stopBurstMode();
+    }
+  }
+
   const reader = new FileReader();
   reader.onload = function(e) {
     const img = new Image();
@@ -2453,7 +2469,6 @@ function handleCameraCapture(input) {
       // 撮った写真までスクロール (連写中はスキップしてユーザーをイラつかせない)
       if (!burstState.enabled) {
         const newIndex = pin.photos.length - 1;
-        // 画像レンダリング完了を少し待ってからスクロール
         setTimeout(() => {
           const container = document.getElementById('pin-photos');
           const scroller = getPinModalScrollEl();
@@ -2463,26 +2478,9 @@ function handleCameraCapture(input) {
           if (!target) return;
           const tr = target.getBoundingClientRect();
           const sr = scroller.getBoundingClientRect();
-          // 新規写真が画面上端から少し下に来るようスクロール
           const delta = tr.top - sr.top - 12;
           scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'smooth' });
         }, 150);
-      }
-
-      // 連写モード: 次のカメラを自動起動
-      if (burstState.enabled) {
-        burstState.count++;
-        updateBurstUI();
-        // 同じ撮影セッションのユーザー操作チェーン内で再度clickする
-        // (iOS Safariはinput changeハンドラからの.click()を許容する)
-        const nextInput = createCameraInput();
-        // 同期で呼ぶことが重要: setTimeoutを噛ますとuser activationが切れる場合がある
-        try {
-          nextInput.click();
-        } catch(err) {
-          console.warn('burst chain click failed:', err);
-          stopBurstMode();
-        }
       }
     };
     img.src = e.target.result;
