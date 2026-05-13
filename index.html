@@ -2307,7 +2307,14 @@ function createCameraInput() {
   input.type = 'file';
   input.id = 'camera-input';
   input.accept = 'image/*';
-  input.style.display = 'none';
+  input.setAttribute('capture', 'environment');
+  // display: none は iOS で .click() を弾くケースがあるため、
+  // 見えないけどレイアウトされる状態にする
+  input.style.position = 'fixed';
+  input.style.left = '-9999px';
+  input.style.top = '0';
+  input.style.opacity = '0';
+  input.style.pointerEvents = 'none';
   input.onchange = function() { handleCameraCapture(this); };
   document.body.appendChild(input);
   return input;
