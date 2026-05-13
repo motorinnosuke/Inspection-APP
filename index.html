@@ -447,6 +447,12 @@
     -webkit-user-select: none; user-select: none;
   }
   #photo-viewer.open { display: block; }
+
+  /* 写真ビューア表示中は他のフローティングUIを完全に隠す */
+  body.viewer-open #float-camera-btn,
+  body.viewer-open #float-home-btn,
+  body.viewer-open #pin-jump-buttons,
+  body.viewer-open #select-action-bar { display: none !important; }
   #viewer-stage {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
@@ -2444,6 +2450,25 @@ function handleCameraCapture(input) {
         document.getElementById('float-home-btn').style.display = 'flex';
       }
 
+      // 撮った写真までスクロール (連写中はスキップしてユーザーをイラつかせない)
+      if (!burstState.enabled) {
+        const newIndex = pin.photos.length - 1;
+        // 画像レンダリング完了を少し待ってからスクロール
+        setTimeout(() => {
+          const container = document.getElementById('pin-photos');
+          const scroller = getPinModalScrollEl();
+          if (!container || !scroller) return;
+          const thumbs = container.querySelectorAll('.photo-thumb');
+          const target = thumbs[newIndex];
+          if (!target) return;
+          const tr = target.getBoundingClientRect();
+          const sr = scroller.getBoundingClientRect();
+          // 新規写真が画面上端から少し下に来るようスクロール
+          const delta = tr.top - sr.top - 12;
+          scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: 'smooth' });
+        }, 150);
+      }
+
       // 連写モード: 次のカメラを自動起動
       if (burstState.enabled) {
         burstState.count++;
@@ -3024,6 +3049,7 @@ function openPhotoViewer(srcOrIndex) {
   resetViewerTransform();
   img.src = _editingPin.photos[index];
   document.getElementById('photo-viewer').classList.add('open');
+  document.body.classList.add('viewer-open');
   updateViewerToolbar();
 
   requestAnimationFrame(() => {
@@ -3109,6 +3135,7 @@ function deleteCurrentViewerPhoto() {
 
 function closePhotoViewer() {
   document.getElementById('photo-viewer').classList.remove('open');
+  document.body.classList.remove('viewer-open');
   resetViewerTransform();
   _viewerCurrentIndex = -1;
 }
